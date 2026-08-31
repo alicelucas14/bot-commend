@@ -680,9 +680,9 @@ window.testPlatform           = testPlatform;
 window.savePlatformCredentials = savePlatformCredentials;
 
 function setupSettingsTab() {
-  document.getElementById('saveKeywordsBtn').addEventListener('click', saveKeywords);
-  document.getElementById('saveConfigBtn').addEventListener('click', saveConfig);
-  document.getElementById('saveDefaultCountryBtn').addEventListener('click', saveDefaultCountry);
+  document.getElementById('saveKeywordsBtn')?.addEventListener('click', saveKeywords);
+  document.getElementById('saveConfigBtn')?.addEventListener('click', saveConfig);
+  document.getElementById('saveDefaultCountryBtn')?.addEventListener('click', saveDefaultCountry);
   const refreshBtn = document.getElementById('refreshPlatformsBtn');
   if (refreshBtn) refreshBtn.addEventListener('click', () => { loadPlatforms(); loadPlatformStatuses(); });
 
