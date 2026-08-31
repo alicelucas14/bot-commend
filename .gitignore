@@ -1,0 +1,16 @@
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# OAuth tokens and accounts
+tokens/
+*.json.token
+
+# Dependencies
+node_modules/
+
+# Logs and system files
+*.log
+.DS_Store
+Thumbs.db

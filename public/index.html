@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>YT Bot — Admin Panel</title>
+  <meta name="description" content="Admin panel for YouTube comment bot with country-based targeting" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ═══════════════════════════════ LOGIN OVERLAY ═══════════════════════════════ -->
+  <div id="loginOverlay" class="login-overlay">
+    <div class="login-card">
+      <div class="login-logo">
+        <span class="logo-icon">🤖</span>
+        <span class="logo-text">Bot<span class="accent">Admin</span></span>
+      </div>
+      <h1 class="login-title">Admin Panel</h1>
+      <p class="login-sub">Enter your password to continue</p>
+      <form id="loginForm" class="login-form">
+        <div class="input-group">
+          <span class="input-icon">🔐</span>
+          <input type="password" id="loginPassword" placeholder="Admin password" autocomplete="current-password" />
+        </div>
+        <button type="submit" class="btn btn-primary btn-full" id="loginBtn">
+          <span>Sign In</span>
+          <span class="btn-arrow">→</span>
+        </button>
+        <p id="loginError" class="login-error hidden">❌ Incorrect password. Try again.</p>
+      </form>
+    </div>
+    <div class="login-bg-orbs">
+      <div class="orb orb-1"></div>
+      <div class="orb orb-2"></div>
+      <div class="orb orb-3"></div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════ MAIN APP ═══════════════════════════════ -->
+  <div id="app" class="app hidden">
+
+    <!-- ──────────────── SIDEBAR ──────────────── -->
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <span class="logo-icon">🤖</span>
+        <span class="logo-text">Bot<span class="accent">Admin</span></span>
+      </div>
+
+      <nav class="sidebar-nav">
+        <a href="#" class="nav-item active" data-tab="dashboard" id="nav-dashboard">
+          <span class="nav-icon">📊</span>
+          <span class="nav-label">Dashboard</span>
+        </a>
+        <a href="#" class="nav-item" data-tab="post" id="nav-post">
+          <span class="nav-icon">💬</span>
+          <span class="nav-label">Post Comment</span>
+        </a>
+        <a href="#" class="nav-item" data-tab="trending" id="nav-trending">
+          <span class="nav-icon">🔥</span>
+          <span class="nav-label">Trending</span>
+        </a>
+        <a href="#" class="nav-item" data-tab="telegram-seo" id="nav-telegram-seo">
+          <span class="nav-icon">✈️</span>
+          <span class="nav-label">Telegram SEO</span>
+        </a>
+        <a href="#" class="nav-item" data-tab="accounts" id="nav-accounts">
+          <span class="nav-icon">👥</span>
+          <span class="nav-label">Accounts</span>
+        </a>
+        <a href="#" class="nav-item" data-tab="settings" id="nav-settings">
+          <span class="nav-icon">⚙️</span>
+          <span class="nav-label">Settings</span>
+        </a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="bot-status-pill" id="botStatusPill">
+          <span class="status-dot" id="statusDot"></span>
+          <span id="statusLabel">Connecting...</span>
+        </div>
+        <button class="btn btn-ghost btn-sm logout-btn" id="logoutBtn">🚪 Logout</button>
+      </div>
+    </aside>
+
+    <!-- ──────────────── MAIN CONTENT ──────────────── -->
+    <main class="main">
+
+      <!-- Header -->
+      <header class="header">
+        <div class="header-left">
+          <h2 class="page-title" id="pageTitle">Dashboard</h2>
+          <span class="page-time" id="liveClock"></span>
+        </div>
+        <div class="header-right">
+          <!-- Theme Toggle -->
+          <button class="theme-toggle" id="themeToggle" title="Toggle light/dark mode">
+            <span class="theme-icon" id="themeIcon">🌙</span>
+          </button>
+          <!-- Global Country Selector -->
+          <div class="country-selector-wrap" id="globalCountrySelectorWrap">
+            <label class="selector-label">🌍 Region</label>
+            <div class="custom-select-wrap">
+              <select id="globalCountrySelect" class="custom-select"></select>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <!-- Tab Panels -->
+      <div class="content">
+
+        <!-- ─────────── DASHBOARD ─────────── -->
+        <section id="tab-dashboard" class="tab-panel active">
+          <div class="stats-grid">
+            <div class="stat-card" id="stat-accounts">
+              <div class="stat-icon">👥</div>
+              <div class="stat-body">
+                <div class="stat-value" id="statAccounts">—</div>
+                <div class="stat-label">Active Accounts</div>
+              </div>
+              <div class="stat-glow glow-purple"></div>
+            </div>
+            <div class="stat-card" id="stat-comments">
+              <div class="stat-icon">💬</div>
+              <div class="stat-body">
+                <div class="stat-value" id="statComments">—</div>
+                <div class="stat-label">Comments Posted</div>
+              </div>
+              <div class="stat-glow glow-cyan"></div>
+            </div>
+            <div class="stat-card" id="stat-uptime">
+              <div class="stat-icon">⏱️</div>
+              <div class="stat-body">
+                <div class="stat-value" id="statUptime">—</div>
+                <div class="stat-label">Server Uptime</div>
+              </div>
+              <div class="stat-glow glow-green"></div>
+            </div>
+            <div class="stat-card" id="stat-proxy">
+              <div class="stat-icon">🛡️</div>
+              <div class="stat-body">
+                <div class="stat-value" id="statProxy">—</div>
+                <div class="stat-label">Proxy Status</div>
+              </div>
+              <div class="stat-glow glow-yellow"></div>
+            </div>
+          </div>
+
+          <div class="dashboard-grid">
+            <!-- Recent Activity -->
+            <div class="card">
+              <div class="card-header">
+                <h3 class="card-title">📋 Recent Activity</h3>
+                <button class="btn btn-ghost btn-sm" id="refreshStats">↻ Refresh</button>
+              </div>
+              <div class="card-body">
+                <div id="recentActivity" class="activity-list">
+                  <div class="empty-state">No activity yet</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Live Log Preview -->
+            <div class="card">
+              <div class="card-header">
+                <h3 class="card-title">🖥️ Live Log</h3>
+                <button class="btn btn-ghost btn-sm" onclick="switchTab('post')">View Full →</button>
+              </div>
+              <div class="card-body p-0">
+                <div id="miniLog" class="mini-terminal"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ─────────── POST COMMENT ─────────── -->
+        <section id="tab-post" class="tab-panel">
+          <div class="post-grid">
+            <!-- Form -->
+            <div class="card">
+              <div class="card-header">
+                <h3 class="card-title">🎯 Comment Blast</h3>
+                <span class="badge badge-purple" id="postAccountCount">0 accounts</span>
+              </div>
+              <div class="card-body">
+                <div class="form-group">
+                  <label class="form-label">📱 Post To Platforms</label>
+                  <div class="platform-toggles" id="platformToggles">
+                    <div class="platform-skeleton">Loading platforms...</div>
+                  </div>
+                </div>
+
+                <div class="form-group">
+                  <label class="form-label">🌍 Target Country / Language</label>
+                  <div class="custom-select-wrap">
+                    <select id="postCountrySelect" class="custom-select"></select>
+                  </div>
+                  <p class="form-hint" id="postLanguageHint">AI will generate comments in <strong>Indonesian</strong></p>
+                </div>
+
+                <div class="form-group">
+                  <label class="form-label">📺 YouTube Video URL</label>
+                  <div class="input-row">
+                    <input type="url" id="videoUrlInput" class="form-input" placeholder="https://www.youtube.com/watch?v=..." />
+                    <button class="btn btn-ghost btn-icon" id="pasteBtn" title="Paste from clipboard">📋</button>
+                  </div>
+                </div>
+
+                <div class="form-group">
+                  <label class="form-label">🏷️ Active Keywords</label>
+                  <div id="keywordBadges" class="keyword-badges"></div>
+                </div>
+
+                <button class="btn btn-primary btn-full btn-lg" id="postCommentBtn">
+                  <span id="postBtnText">🚀 Blast Comments</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Live Terminal -->
+            <div class="card terminal-card">
+              <div class="card-header">
+                <h3 class="card-title">🖥️ Live Terminal</h3>
+                <div class="terminal-controls">
+                  <button class="btn btn-ghost btn-sm" id="clearLogBtn">🗑️ Clear</button>
+                  <span class="terminal-dot dot-red"></span>
+                  <span class="terminal-dot dot-yellow"></span>
+                  <span class="terminal-dot dot-green"></span>
+                </div>
+              </div>
+              <div class="terminal" id="liveTerminal">
+                <div class="terminal-line muted">$ Waiting for activity...</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ─────────── TRENDING ─────────── -->
+        <section id="tab-trending" class="tab-panel">
+          <div class="card trending-controls-card">
+              <div class="card-body">
+              <div class="trending-controls">
+                <div class="form-group no-margin">
+                  <label class="form-label">📱 Platform</label>
+                  <select id="trendingPlatformSelect" class="custom-select">
+                    <option value="youtube">🎥 YouTube</option>
+                    <option value="tiktok">🎵 TikTok</option>
+                    <option value="reddit">🟠 Reddit</option>
+                  </select>
+                </div>
+                <div class="form-group no-margin">
+                  <label class="form-label">🌍 Country / Region</label>
+                  <div class="custom-select-wrap">
+                    <select id="trendingCountrySelect" class="custom-select"></select>
+                  </div>
+                </div>
+                <div class="form-group no-margin">
+                  <label class="form-label">📊 Max Results</label>
+                  <select id="trendingMaxResults" class="custom-select">
+                    <option value="10">10 videos</option>
+                    <option value="20" selected>20 videos</option>
+                    <option value="50">50 videos</option>
+                  </select>
+                </div>
+                <button class="btn btn-primary btn-lg" id="fetchTrendingBtn">
+                  🔥 Fetch Trending
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div id="trendingStatus" class="section-status hidden"></div>
+
+          <div id="trendingGrid" class="trending-grid">
+            <div class="empty-state-large">
+              <div class="empty-icon">🔥</div>
+              <p>Select a country and click "Fetch Trending" to see trending videos</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- ─────────── ACCOUNTS ─────────── -->
+        <section id="tab-accounts" class="tab-panel">
+          <div class="card">
+            <div class="card-header">
+              <h3 class="card-title">👥 Google Accounts</h3>
+              <div style="display:flex;gap:8px;">
+                <button class="btn btn-success btn-sm" id="addAccountBtn" onclick="openAddAccountModal()">➕ Add Account</button>
+                <button class="btn btn-primary btn-sm" id="reloadAccountsBtn">↻ Reload Accounts</button>
+              </div>
+            </div>
+            <div class="card-body p-0">
+              <div id="accountsTableWrap" class="table-wrap">
+                <table class="data-table" id="accountsTable">
+                  <thead>
+                    <tr>
+                      <th>Username</th>
+                      <th>Access Token</th>
+                      <th>Refresh Token</th>
+                      <th>Comments</th>
+                      <th>Last Used</th>
+                      <th>Status</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="accountsBody">
+                    <tr><td colspan="7" class="empty-cell">Loading accounts...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ─────────── TELEGRAM SEO & GROUP FINDER ─────────── -->
+        <section id="tab-telegram-seo" class="tab-panel">
+          <div class="tab-header">
+            <h2 class="tab-title">✈️ Telegram Group SEO & Commenter</h2>
+            <p class="tab-subtitle">Discover high-traffic public discussion groups, audit SEO viability & backlink permissions, and blast targeted comments.</p>
+          </div>
+
+          <!-- Search & Filter Controls Card -->
+          <div class="card mb-24">
+            <div class="card-header">
+              <h3 class="card-title">🔍 Search Public Groups & Channels</h3>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button type="button" class="btn btn-secondary btn-sm" id="btnOpenAddTgTarget">➕ Add Target Group</button>
+                <button type="button" class="btn btn-ghost btn-sm" id="btnOpenManageCountries">🌍 Manage Countries</button>
+                <button type="button" class="btn btn-ghost btn-sm" id="toggleInspectLinksBtn">📋 Audit Custom Links</button>
+              </div>
+            </div>
+            <div class="card-body">
+              <div class="pm-form-inner" style="grid-template-columns: 2fr 1fr 1fr auto; gap: 12px; align-items: flex-end;">
+                <div class="form-group">
+                  <label class="form-label">Keyword / Niche</label>
+                  <input type="text" id="tgSearchKeyword" class="custom-input" placeholder="e.g. crypto, slot, indonesia, bisnis, marketing" value="indonesia" />
+                  <p class="form-hint">Scans high-traffic supergroups and Lyzem directory</p>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Region / Country</label>
+                  <div class="custom-select-wrap">
+                    <select id="tgSearchCountry" class="custom-select">
+                      <option value="ALL">🌐 All Countries</option>
+                      <option value="ID" selected>🇮🇩 Indonesia</option>
+                      <option value="US">🇺🇸 United States</option>
+                      <option value="GLOBAL">🌍 Global / English</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Audience Size</label>
+                  <div class="custom-select-wrap">
+                    <select id="tgMinMembers" class="custom-select">
+                      <option value="10000">🔥 10k+ High Traffic</option>
+                      <option value="1000" selected>⚡ 1k+ Active</option>
+                      <option value="0">All Sizes</option>
+                    </select>
+                  </div>
+                </div>
+                <button type="button" class="btn btn-primary" id="tgSearchBtn" style="height:42px;">🔍 Find Groups</button>
+              </div>
+
+              <!-- Collapsible Custom Link Inspector -->
+              <div id="tgCustomInspectBox" style="display:none;margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
+                <label class="form-label">Paste Telegram Links or @Usernames (one per line)</label>
+                <textarea id="tgCustomLinksInput" class="form-textarea" rows="3" placeholder="https://t.me/indonesia&#10;@cryptocurrency&#10;https://t.me/komunitas_crypto_indonesia"></textarea>
+                <button type="button" class="btn btn-secondary mt-12" id="tgInspectBtn">⚡ Inspect & Rate These Links</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Telegram Blast Action Bar -->
+          <div class="card mb-24" style="border-color: rgba(34, 158, 217, 0.4);">
+            <div class="card-header">
+              <h3 class="card-title">💬 Telegram Comment & Backlink Blast</h3>
+              <span id="tgSelectedCountBadge" class="badge" style="background:var(--cyan);color:#fff;">0 selected</span>
+            </div>
+            <div class="card-body">
+              <div class="pm-form-inner" style="grid-template-columns: 1fr 1fr; gap: 12px;">
+                <div class="form-group">
+                  <label class="form-label">Marketing Backlink / Target URL</label>
+                  <input type="text" id="tgBlastBacklink" class="custom-input" placeholder="https://yoursite.com or https://youtube.com/..." />
+                  <p class="form-hint">Automatically appended to AI-crafted comments</p>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Language</label>
+                  <div class="custom-select-wrap">
+                    <select id="tgBlastLanguage" class="custom-select">
+                      <option value="Indonesian" selected>🇮🇩 Indonesian</option>
+                      <option value="English">🇺🇸 English</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+              <div class="form-group mt-12">
+                <label class="form-label">Comment Template / AI Context (Leave blank for auto GPT-4 reaction)</label>
+                <textarea id="tgBlastCustomComment" class="form-textarea" rows="2" placeholder="Leave empty to let GPT-4 generate contextual reaction with your brand & backlink..."></textarea>
+              </div>
+              <div style="display:flex;gap:12px;align-items:center;margin-top:12px;flex-wrap:wrap;">
+                <button type="button" class="btn btn-primary" id="tgBlastBtn">🚀 Blast Comment to Selected Groups</button>
+                <button type="button" class="btn btn-ghost btn-sm" id="tgSelectAllBtn">Select All Groups</button>
+                <span id="tgBlastStatus" style="font-size:13px;font-weight:500;"></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Discovered Groups & Channels Table -->
+          <div class="card">
+            <div class="card-header">
+              <h3 class="card-title">📊 Vetted Telegram Target Groups</h3>
+              <span id="tgResultsCount" class="badge">Ready</span>
+            </div>
+            <div class="card-body" style="padding:0;">
+              <div class="data-table-wrap">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th style="width:40px;"><input type="checkbox" id="tgMasterCheckbox" /></th>
+                      <th>Group / Channel</th>
+                      <th>Audience & Activity</th>
+                      <th>Comments / Discussion</th>
+                      <th>Backlinks</th>
+                      <th>SEO Score</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tgGroupsTableBody">
+                    <tr><td colspan="7" class="empty-cell">Click "Find Groups" to search active Telegram channels.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ─────────── SETTINGS ─────────── -->
+        <section id="tab-settings" class="tab-panel">
+          <div class="settings-grid">
+
+            <!-- Platform Status -->
+            <div class="card">
+              <div class="card-header">
+                <h3 class="card-title">📡 Platform Status</h3>
+                <button class="btn btn-ghost btn-sm" id="refreshPlatformsBtn">↻ Refresh</button>
+              </div>
+              <div class="card-body" id="platformStatusList">
+                <div class="spinner"></div>
+              </div>
+            </div>
+
+            <!-- Keywords -->
+            <div class="card">
+              <div class="card-header">
+                <h3 class="card-title">🏷️ Spam Keywords</h3>
+              </div>
+              <div class="card-body">
+                <p class="form-hint">One keyword per line. Bot picks one randomly per comment.</p>
+                <textarea id="keywordsTextarea" class="form-textarea" rows="6" placeholder="KEYWORD1&#10;KEYWORD2&#10;KEYWORD3"></textarea>
+                <button class="btn btn-primary mt-12" id="saveKeywordsBtn">💾 Save Keywords</button>
+              </div>
+            </div>
+
+            <!-- 🛡️ Anti-Ban Mode -->
+            <div class="card" style="border-color: rgba(139,92,246,0.4);">
+              <div class="card-header">
+                <h3 class="card-title">🛡️ Anti-Ban Mode</h3>
+                <button type="button" id="safeModeSwitchLabel"
+                  onclick="toggleSafeMode()"
+                  style="padding:4px 14px;border-radius:20px;font-size:12px;font-weight:600;
+                         background:var(--green);color:#fff;border:none;cursor:pointer;
+                         transition:all 0.2s ease;">Enabled</button>
+                <input type="checkbox" id="safeModeToggle" style="display:none;" checked>
+              </div>
+              <div class="card-body" style="display:flex;flex-direction:column;gap:16px;">
+
+                <div class="pm-form-inner" style="grid-template-columns:1fr 1fr;gap:12px;">
+                  <div class="form-group">
+                    <label class="form-label">Min Delay Between Accounts (seconds)</label>
+                    <input type="number" id="postDelayMinInput" class="custom-input" min="5" step="5" value="60" />
+                    <p class="form-hint">🟢 Safe: 60s+</p>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Max Delay Between Accounts (seconds)</label>
+                    <input type="number" id="postDelayMaxInput" class="custom-input" min="10" step="5" value="120" />
+                    <p class="form-hint">Random between min and max</p>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Daily Comment Limit Per Account</label>
+                    <input type="number" id="dailyLimitInput" class="custom-input" min="1" max="200" value="30" />
+                    <p class="form-hint">Resets at midnight automatically</p>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Account Cooldown (hours between reuse)</label>
+                    <input type="number" id="cooldownHoursInput" class="custom-input" min="0" step="0.5" value="0" />
+                    <p class="form-hint">0 = no cooldown</p>
+                  </div>
+                </div>
+
+                <div class="form-group">
+                  <label class="form-label">Keyword Mix Ratio — <span id="keywordMixLabel">80</span>% of comments include a keyword</label>
+                  <input type="range" id="keywordMixRatioInput" class="form-range" min="0" max="100" step="5" value="80"
+                    oninput="document.getElementById('keywordMixLabel').textContent = this.value" />
+                  <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-top:4px;">
+                    <span>0% — Never (all clean)</span>
+                    <span>50% — Mixed</span>
+                    <span>100% — Always keyword</span>
+                  </div>
+                </div>
+
+                <button class="btn btn-primary" id="saveAntiBanBtn" style="align-self:flex-start;">💾 Save Anti-Ban Settings</button>
+                <p class="form-hint">When Safe Mode is ON, the bot randomly varies delays, skips over-limit accounts, and blends in clean comments to mimic human behaviour.</p>
+              </div>
+            </div>
+
+            <!-- Proxy Configuration -->
+            <div class="card">
+              <div class="card-header">
+                <h3 class="card-title">🛡️ Proxy Configuration</h3>
+              </div>
+              <div class="card-body" style="display:flex;flex-direction:column;gap:14px;">
+                <!-- Enable toggle -->
+                <div class="form-group" style="flex-direction:row;align-items:center;justify-content:space-between;gap:12px;">
+                  <label class="form-label" style="margin:0;">Enable Proxy</label>
+                  <label class="proxy-toggle-wrap">
+                    <input type="checkbox" id="proxyEnabledToggle" style="display:none;">
+                    <span class="proxy-switch" id="proxySwitchLabel">Disabled</span>
+                  </label>
+                </div>
+                <div class="pm-form-inner" style="grid-template-columns:1fr 1fr;gap:12px;">
+                  <div class="form-group">
+                    <label class="form-label">Host</label>
+                    <input type="text" id="proxyHostInput" class="custom-input" placeholder="proxy.example.io" />
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Port</label>
+                    <input type="number" id="proxyPortInput" class="custom-input" placeholder="8080" />
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Username</label>
+                    <input type="text" id="proxyUsernameInput" class="custom-input" placeholder="proxyuser" />
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Password</label>
+                    <input type="password" id="proxyPasswordInput" class="custom-input" placeholder="••••••••" />
+                  </div>
+                </div>
+                <button class="btn btn-primary" id="saveProxyBtn" style="align-self:flex-start;">💾 Save Proxy Settings</button>
+                <p class="form-hint">Changes are saved to <code>.env</code> and applied immediately. Reconnect accounts after changing proxy.</p>
+              </div>
+            </div>
+
+            <!-- Google & YouTube API Configuration -->
+            <div class="card">
+              <div class="card-header">
+                <h3 class="card-title">🎥 Google & YouTube API</h3>
+              </div>
+              <div class="card-body" style="display:flex;flex-direction:column;gap:14px;">
+                <div class="pm-form-inner" style="grid-template-columns:1fr;gap:12px;">
+                  <div class="form-group">
+                    <label class="form-label">Google OAuth Client ID</label>
+                    <input type="text" id="googleClientIdInput" class="custom-input" placeholder="xxxx.apps.googleusercontent.com" />
+                    <p class="form-hint">From Google Cloud Console Credentials (Web application)</p>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Google OAuth Client Secret</label>
+                    <div style="display:flex;gap:8px;">
+                      <input type="password" id="googleClientSecretInput" class="custom-input" placeholder="GOCSPX-..." style="flex:1;" />
+                      <button type="button" class="btn btn-ghost btn-sm" id="toggleGoogleSecretVisibility" title="Show/Hide Secret">👁️</button>
+                    </div>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Google Redirect URI</label>
+                    <input type="text" id="googleRedirectUriInput" class="custom-input" placeholder="http://localhost:4000/oauth2callback" />
+                    <p class="form-hint">Must match the Authorized Redirect URI set in Google Cloud Console</p>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">YouTube Data API v3 Key</label>
+                    <input type="text" id="youtubeApiKeyInput" class="custom-input" placeholder="AIzaSy..." />
+                    <p class="form-hint">Used for fast trending video searches and metadata lookup</p>
+                  </div>
+                </div>
+                <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+                  <button class="btn btn-primary" id="saveGoogleBtn">💾 Save Google Settings</button>
+                  <button class="btn btn-ghost btn-sm" id="testGoogleBtn">⚡ Test API Key</button>
+                  <span id="googleTestResult" style="font-size:13px;font-weight:500;"></span>
+                </div>
+                <p class="form-hint"><a href="https://console.cloud.google.com/apis/credentials" target="_blank" style="color:var(--cyan);">Open Google Cloud Console</a> to manage OAuth and API keys.</p>
+              </div>
+            </div>
+
+            <!-- OpenAI Configuration -->
+            <div class="card">
+              <div class="card-header">
+                <h3 class="card-title">🤖 OpenAI / AI Configuration</h3>
+              </div>
+              <div class="card-body" style="display:flex;flex-direction:column;gap:14px;">
+                <div class="pm-form-inner" style="grid-template-columns:1fr;gap:12px;">
+                  <div class="form-group">
+                    <label class="form-label">OpenAI API Key</label>
+                    <div style="display:flex;gap:8px;">
+                      <input type="password" id="openaiApiKeyInput" class="custom-input" placeholder="sk-proj-..." style="flex:1;" />
+                      <button type="button" class="btn btn-ghost btn-sm" id="toggleOpenAiKeyVisibility" title="Show/Hide Key">👁️</button>
+                    </div>
+                    <p class="form-hint">Used by GPT-4 to generate comments. <a href="https://platform.openai.com/api-keys" target="_blank" style="color:var(--cyan);">Get your API key here</a></p>
+                  </div>
+                </div>
+                <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+                  <button class="btn btn-primary" id="saveOpenAiBtn">💾 Save OpenAI Key</button>
+                  <button class="btn btn-ghost btn-sm" id="testOpenAiBtn">⚡ Test Key</button>
+                  <span id="openAiTestResult" style="font-size:13px;font-weight:500;"></span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Telegram Configuration -->
+            <div class="card">
+              <div class="card-header">
+                <h3 class="card-title">✈️ Telegram Configuration</h3>
+              </div>
+              <div class="card-body" style="display:flex;flex-direction:column;gap:14px;">
+                <!-- Notifications enable toggle -->
+                <div class="form-group" style="flex-direction:row;align-items:center;justify-content:space-between;gap:12px;">
+                  <label class="form-label" style="margin:0;">Comment Notifications</label>
+                  <label class="proxy-toggle-wrap">
+                    <input type="checkbox" id="telegramNotifyToggle" style="display:none;">
+                    <span class="proxy-switch" id="telegramSwitchLabel">Disabled</span>
+                  </label>
+                </div>
+                <div class="pm-form-inner" style="grid-template-columns:1fr;gap:12px;">
+                  <div class="form-group">
+                    <label class="form-label">Bot Token</label>
+                    <input type="text" id="telegramBotTokenInput" class="custom-input" placeholder="1234567890:AAFxxxxxxxxxxxxxxxxxxxxxxxx" />
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Group / Chat ID</label>
+                    <input type="text" id="telegramGroupIdInput" class="custom-input" placeholder="-1001234567890 or username" />
+                  </div>
+                </div>
+                <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                  <button class="btn btn-primary" id="saveTelegramBtn">💾 Save Telegram</button>
+                  <button class="btn btn-ghost btn-sm" id="testTelegramBtn">📨 Send Test Message</button>
+                </div>
+                <p class="form-hint">The bot will send a Telegram message every time a comment is posted. <a href="https://t.me/BotFather" target="_blank" style="color:var(--cyan);">Get a token from @BotFather</a></p>
+              </div>
+            </div>
+
+            <!-- Default Country -->
+            <div class="card">
+              <div class="card-header">
+                <h3 class="card-title">🌍 Default Country</h3>
+              </div>
+              <div class="card-body">
+                <div class="form-group">
+                  <label class="form-label">Default Region for all operations</label>
+                  <div class="custom-select-wrap">
+                    <select id="defaultCountrySelect" class="custom-select"></select>
+                  </div>
+                </div>
+                <button class="btn btn-primary" id="saveDefaultCountryBtn">💾 Save Default</button>
+              </div>
+            </div>
+
+          </div>
+        </section>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- Toast Container -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <!-- ── Add Google Account Modal ── -->
+  <div id="addAccountModal" class="modal-overlay hidden">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3>🔗 Connect Google Account</h3>
+        <button class="modal-close" onclick="closeModal('addAccountModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="modal-step" id="authStep1">
+          <p class="modal-desc">Give this account a name (used to identify it in the panel), then click <strong>Generate Link</strong> to get a Google login URL.</p>
+          <div class="form-group">
+            <label class="form-label">Account Name</label>
+            <input id="newAccountName" type="text" class="custom-input" placeholder="e.g. user6 or myaccount" />
+          </div>
+          <button class="btn btn-primary btn-full" id="generateAuthLinkBtn" onclick="generateAuthLink()">
+            <span id="genLinkBtnText">✨ Generate Login Link</span>
+          </button>
+        </div>
+
+        <div class="modal-step hidden" id="authStep2">
+          <div class="auth-success-icon">🔗</div>
+          <p class="modal-desc">Click the button below to open Google login in a new tab. Sign in and grant permission, then come back here — the account will appear automatically.</p>
+          <a id="authLinkAnchor" href="#" target="_blank" rel="noopener" class="btn btn-primary btn-full auth-link-btn">🚀 Open Google Login</a>
+          <div class="auth-waiting" id="authWaiting">
+            <span class="spinner-sm"></span>
+            <span>Waiting for login to complete...</span>
+          </div>
+        </div>
+
+        <div class="modal-step hidden" id="authStep3">
+          <div class="auth-success-icon">✅</div>
+          <p class="modal-desc"><strong id="authSuccessName"></strong> has been connected successfully!</p>
+          <button class="btn btn-primary btn-full" onclick="closeModal('addAccountModal')">Done</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Rename Account Modal ── -->
+  <div id="renameAccountModal" class="modal-overlay hidden">
+    <div class="modal-box modal-box-sm">
+      <div class="modal-header">
+        <h3>✏️ Rename Account</h3>
+        <button class="modal-close" onclick="closeModal('renameAccountModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="renameAccountOldName" />
+        <div class="form-group">
+          <label class="form-label">New Name</label>
+          <input id="renameAccountInput" type="text" class="custom-input" placeholder="new_name" />
+        </div>
+        <div style="display:flex;gap:10px;margin-top:8px;">
+          <button class="btn btn-primary" onclick="confirmRenameAccount()">💾 Save</button>
+          <button class="btn btn-ghost" onclick="closeModal('renameAccountModal')">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Add/Edit Telegram Target Group Modal ── -->
+  <div id="modalTgTarget" class="modal-overlay hidden">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 id="modalTgTargetTitle">➕ Add Telegram Target Group</h3>
+        <button class="modal-close" onclick="closeModal('modalTgTarget')">&times;</button>
+      </div>
+      <div class="modal-body" style="display:flex;flex-direction:column;gap:14px;">
+        <div class="form-group">
+          <label class="form-label">Telegram Handle or Link</label>
+          <input type="text" id="inputTgTargetHandle" class="custom-input" placeholder="e.g. @indodax or https://t.me/indodax" />
+          <p class="form-hint">Username or link of the public group/channel</p>
+        </div>
+        <div class="pm-form-inner" style="grid-template-columns:1fr 1fr;gap:12px;">
+          <div class="form-group">
+            <label class="form-label">Country / Region</label>
+            <div class="custom-select-wrap">
+              <select id="selectTgTargetCountry" class="custom-select"></select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Category</label>
+            <input type="text" id="inputTgTargetCategory" class="custom-input" placeholder="e.g. Crypto, Slots, Forex, Marketing" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Niche Keywords (space or comma separated)</label>
+          <input type="text" id="inputTgTargetNiche" class="custom-input" placeholder="e.g. indonesia bitcoin trading crypto slot" />
+          <p class="form-hint">Keywords that trigger this group when searching</p>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:8px;">
+          <button type="button" class="btn btn-primary" id="btnSaveTgTarget">💾 Save Target Group</button>
+          <button type="button" class="btn btn-ghost" onclick="closeModal('modalTgTarget')">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Manage Countries Modal ── -->
+  <div id="modalManageCountries" class="modal-overlay hidden">
+    <div class="modal-box" style="max-width:650px;">
+      <div class="modal-header">
+        <h3>🌍 Manage Countries</h3>
+        <button class="modal-close" onclick="closeModal('modalManageCountries')">&times;</button>
+      </div>
+      <div class="modal-body" style="display:flex;flex-direction:column;gap:18px;">
+        <!-- Add Country Form -->
+        <div class="card" style="background:var(--bg-input);padding:14px;border-radius:var(--radius-sm);">
+          <h4 style="margin:0 0 10px 0;font-size:13.5px;color:var(--text-primary);">➕ Add / Edit Country</h4>
+          <div class="pm-form-inner" style="grid-template-columns:1fr 2fr 1fr 2fr auto;gap:8px;align-items:flex-end;">
+            <div class="form-group">
+              <label class="form-label">Code</label>
+              <input type="text" id="inputNewCountryCode" class="custom-input" placeholder="NG" maxlength="4" style="text-transform:uppercase;" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Country Name</label>
+              <input type="text" id="inputNewCountryName" class="custom-input" placeholder="Nigeria" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Flag</label>
+              <input type="text" id="inputNewCountryFlag" class="custom-input" placeholder="🇳🇬" maxlength="4" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Language</label>
+              <input type="text" id="inputNewCountryLang" class="custom-input" placeholder="English" />
+            </div>
+            <button type="button" class="btn btn-primary btn-sm" id="btnSaveCountry" style="height:38px;">💾 Save</button>
+          </div>
+        </div>
+
+        <!-- Existing Countries Table -->
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <h4 style="margin:0;font-size:13.5px;color:var(--text-secondary);">Active Countries List</h4>
+            <span id="countryCountBadge" class="badge">Loading...</span>
+          </div>
+          <div class="data-table-wrap" style="max-height:280px;overflow-y:auto;">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Flag</th>
+                  <th>Name</th>
+                  <th>Code</th>
+                  <th>Language</th>
+                  <th style="width:60px;">Action</th>
+                </tr>
+              </thead>
+              <tbody id="countriesTableBody">
+                <tr><td colspan="5" class="empty-cell">Loading countries...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
