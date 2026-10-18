@@ -2,15 +2,19 @@
 .env
 .env.*
 !.env.example
+**/.env
+**/.env.*
 
-# OAuth tokens and accounts
+# OAuth tokens and credentials
 tokens/
+**/tokens/
 *.json.token
 
 # Dependencies
 node_modules/
+**/node_modules/
 
-# Logs and system files
+# Logs and OS files
 *.log
 .DS_Store
 Thumbs.db

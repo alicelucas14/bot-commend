@@ -4,6 +4,8 @@
 require('dotenv').config();
 const { getBrowser, isPuppeteerAvailable } = require('./browser');
 
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 const TIKTOK_USERNAME = process.env.TIKTOK_USERNAME;
 const TIKTOK_PASSWORD = process.env.TIKTOK_PASSWORD;
 
@@ -39,7 +41,7 @@ async function ensureLogin(page) {
   await page.goto('https://www.tiktok.com/login/phone-or-email/email', {
     waitUntil: 'networkidle2', timeout: 30000,
   });
-  await page.waitForTimeout(2000);
+  await delay(2000);
 
   // Fill credentials
   const usernameSelectors = ['input[name="username"]', 'input[autocomplete="username"]', 'input[type="text"]'];
@@ -48,9 +50,9 @@ async function ensureLogin(page) {
     if (el) { await el.type(TIKTOK_USERNAME, { delay: 60 }); break; }
   }
 
-  await page.waitForTimeout(500);
+  await delay(500);
   await page.type('input[type="password"]', TIKTOK_PASSWORD, { delay: 60 });
-  await page.waitForTimeout(500);
+  await delay(500);
 
   // Click login button
   const loginBtnSelectors = ['button[data-e2e="login-button"]', 'button[type="submit"]', 'button.login-button'];
@@ -59,7 +61,7 @@ async function ensureLogin(page) {
     if (el) { await el.click(); break; }
   }
 
-  await page.waitForTimeout(5000);
+  await delay(5000);
   sessionCookies = await page.cookies();
   return !page.url().includes('/login');
 }
@@ -78,7 +80,7 @@ async function postComment(videoUrl, comment) {
 
     // Navigate to video
     await page.goto(videoUrl, { waitUntil: 'networkidle2', timeout: 30000 });
-    await page.waitForTimeout(3000);
+    await delay(3000);
 
     // Find comment input
     const inputSelectors = [
@@ -99,9 +101,9 @@ async function postComment(videoUrl, comment) {
     if (!commentInput) throw new Error('Comment input not found on TikTok video page');
 
     await commentInput.click();
-    await page.waitForTimeout(600);
+    await delay(600);
     await page.keyboard.type(comment, { delay: 40 });
-    await page.waitForTimeout(600);
+    await delay(600);
 
     // Submit
     const submitSelectors = ['div[data-e2e="comment-post"]', 'button[data-e2e="comment-post"]', '[data-e2e="comment-submit"]'];
@@ -112,7 +114,7 @@ async function postComment(videoUrl, comment) {
     }
     if (!submitted) await page.keyboard.press('Enter');
 
-    await page.waitForTimeout(2000);
+    await delay(2000);
     return { success: true, platform: 'tiktok' };
   } finally {
     await page.close();
@@ -128,7 +130,7 @@ async function getTrending(regionCode = 'US', maxResults = 20) {
   try {
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
     await page.goto('https://www.tiktok.com/trending', { waitUntil: 'networkidle2', timeout: 30000 });
-    await page.waitForTimeout(4000);
+    await delay(4000);
 
     const videos = await page.evaluate((max) => {
       const anchors = Array.from(document.querySelectorAll('a[href*="/video/"]'));

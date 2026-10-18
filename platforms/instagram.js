@@ -4,6 +4,8 @@
 require('dotenv').config();
 const { getBrowser, isPuppeteerAvailable } = require('./browser');
 
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 const IG_USERNAME = process.env.INSTAGRAM_USERNAME;
 const IG_PASSWORD = process.env.INSTAGRAM_PASSWORD;
 
@@ -35,21 +37,26 @@ async function ensureLogin(page) {
   }
 
   await page.goto('https://www.instagram.com/accounts/login/', { waitUntil: 'networkidle2', timeout: 30000 });
-  await page.waitForTimeout(2000);
+  await delay(2000);
 
   await page.waitForSelector('input[name="username"]', { timeout: 10000 });
   await page.type('input[name="username"]', IG_USERNAME, { delay: 60 });
   await page.type('input[name="password"]', IG_PASSWORD, { delay: 60 });
-  await page.waitForTimeout(500);
+  await delay(500);
 
   await page.click('button[type="submit"]');
-  await page.waitForTimeout(5000);
+  await delay(5000);
 
   // Dismiss "Save Login Info" / "Turn On Notifications" dialogs
   for (let i = 0; i < 3; i++) {
     try {
-      const notNow = await page.$x("//button[contains(text(),'Not Now') or contains(text(),'Not now')]");
-      if (notNow.length) { await notNow[0].click(); await page.waitForTimeout(1500); }
+      const clicked = await page.evaluate(() => {
+        const buttons = Array.from(document.querySelectorAll('button'));
+        const notNow = buttons.find(b => /not now/i.test(b.innerText || ''));
+        if (notNow) { notNow.click(); return true; }
+        return false;
+      });
+      if (clicked) await delay(1500);
     } catch {}
   }
 
@@ -70,7 +77,7 @@ async function postComment(postUrl, comment) {
     if (!loggedIn) throw new Error('Instagram login failed — check credentials');
 
     await page.goto(postUrl, { waitUntil: 'networkidle2', timeout: 30000 });
-    await page.waitForTimeout(3000);
+    await delay(3000);
 
     // Find comment textarea
     const textareaSelectors = [
@@ -91,7 +98,7 @@ async function postComment(postUrl, comment) {
       const commentIcon = await page.$('[aria-label*="Comment" i]');
       if (commentIcon) {
         await commentIcon.click();
-        await page.waitForTimeout(1500);
+        await delay(1500);
         for (const sel of textareaSelectors) {
           textarea = await page.$(sel);
           if (textarea) break;
@@ -102,9 +109,9 @@ async function postComment(postUrl, comment) {
     if (!textarea) throw new Error('Comment textarea not found on Instagram post');
 
     await textarea.click();
-    await page.waitForTimeout(500);
+    await delay(500);
     await textarea.type(comment, { delay: 40 });
-    await page.waitForTimeout(500);
+    await delay(500);
 
     // Submit via Enter or Post button
     const postBtn = await page.$('button[type="submit"]:not([disabled])');
@@ -114,7 +121,7 @@ async function postComment(postUrl, comment) {
       await page.keyboard.press('Enter');
     }
 
-    await page.waitForTimeout(2500);
+    await delay(2500);
     return { success: true, platform: 'instagram' };
   } finally {
     await page.close();

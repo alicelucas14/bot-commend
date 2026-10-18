@@ -150,7 +150,7 @@ function updateEnvFile(updates, singleVal) {
     const regex = new RegExp(`^${key}=.*`, 'm');
     const line  = `${key}=${value}`;
     if (regex.test(content)) {
-      content = content.replace(regex, line);
+      content = content.replace(regex, () => line);
     } else {
       content += (content.endsWith('\n') || content === '' ? '' : '\n') + `${key}=${value}\n`;
     }
@@ -176,7 +176,7 @@ const PROXYLAB_USERNAME = process.env.PROXYLAB_USERNAME;
 const PROXYLAB_PASSWORD = process.env.PROXYLAB_PASSWORD;
 const PROXYLAB_ENABLED  = process.env.PROXYLAB_ENABLED === 'true';
 
-let openai = new OpenAI({ apiKey: openaiApiKey });
+let openai = openaiApiKey ? new OpenAI({ apiKey: openaiApiKey }) : null;
 
 // ─── Telegram Notifications ───────────────────────────────────
 async function sendTelegram(message) {
@@ -385,6 +385,15 @@ let keywords = ['GOLD888', 'POLASLOT88', 'WINGS365'];
 async function generateReply(input, sourceType, language = 'Indonesian', useKeyword = true) {
   try {
     const chosenKeyword = keywords[Math.floor(Math.random() * keywords.length)];
+    if (!openai) {
+      botWarn('⚠️ OpenAI API key not configured. Using fallback comment template.');
+      const fallbackText = useKeyword ? `Nice video! #${chosenKeyword}` : 'Great video!';
+      let fallbackReply = useKeyword
+        ? injectRandomEmojis(obfuscateKeyword(fallbackText, chosenKeyword), 'gambling')
+        : fallbackText;
+      return randomizeStyle(fallbackReply);
+    }
+
     let prompt;
     if (useKeyword) {
       prompt = sourceType === 'comments'
@@ -715,7 +724,7 @@ app.post('/api/config', requireAuth, (req, res) => {
     openaiApiKey = trimmedKey;
     updateEnvFile('OPENAI_API_KEY', trimmedKey);
     try {
-      openai = new OpenAI({ apiKey: trimmedKey });
+      openai = trimmedKey ? new OpenAI({ apiKey: trimmedKey }) : null;
       botOk('🔑 OpenAI API Key updated and client refreshed');
     } catch (e) {
       botWarn(`⚠️ Failed to reinitialize OpenAI client: ${e.message}`);

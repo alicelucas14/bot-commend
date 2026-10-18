@@ -54,10 +54,16 @@ async function getCurrentIP(agent, username) {
 }
 
 // 🤖 Initialize Bots and API Clients
-const bot = new TelegramBot(telegramToken, { polling: true });
-const openai = new OpenAI({ apiKey: openaiApiKey });
+if (!telegramToken) {
+    console.warn("⚠️ TELEGRAM_BOT_TOKEN is not set in .env. Bot will not start polling until a token is provided.");
+}
+const bot = telegramToken ? new TelegramBot(telegramToken, { polling: true }) : null;
+const openai = openaiApiKey ? new OpenAI({ apiKey: openaiApiKey }) : null;
 
 // 🧾 Load Tokens and Setup OAuth2 Clients with Proxies
+if (!fs.existsSync('tokens')) {
+    fs.mkdirSync('tokens', { recursive: true });
+}
 const tokenFiles = fs.readdirSync('tokens').filter(file => file.endsWith('.json'));
 
 const users = tokenFiles.map(file => {
@@ -100,8 +106,7 @@ const users = tokenFiles.map(file => {
 });
 
 if (users.length === 0) {
-    console.error("❌ No authenticated Google accounts found! Run get_token.js to add accounts.");
-    process.exit(1);
+    console.warn("⚠️ No authenticated Google accounts found in tokens/. Run the admin panel or get_token.js to add accounts.");
 }
 
 const youtubeClients = users.map(user => ({
@@ -223,6 +228,12 @@ async function generateReply(input, sourceType) {
     try {
         const keywords = ['GOLD888', 'POLASLOT88', 'WINGS365'];
         const chosenKeyword = keywords[Math.floor(Math.random() * keywords.length)];
+
+        if (!openai) {
+            console.warn('⚠️ OpenAI API key not configured. Using fallback comment template.');
+            return injectRandomEmojis(obfuscateKeyword(`Kinda vibing with this one. #${chosenKeyword}`, chosenKeyword), 'gambling');
+        }
+
         const prompt = sourceType === 'comments'
             ? `Respond casually and naturally to this YouTube comment like a real viewer use always indonesian language. Make it one sentence, avoid generic phrases like "thanks" or "great video"[...]`
             : `Write a short, natural-sounding one-sentence YouTube comment about this video. Avoid generic praise. Make it feel like a real viewer reaction ,always in indonesian langauge, and in[...]`;
@@ -273,47 +284,27 @@ async function postComment(videoId, source, chatId) {
             });
             console.log(`✅ Posted top-level comment by ${user.username}: "${reply}"`);
 
-            console.log(chatId, `✅ ${user.username} finished commenting. Waiting 10 seconds...`);
+            if (bot) await bot.sendMessage(chatId, `✅ ${user.username} finished commenting. Waiting 10 seconds...`);
             successUsers.push(user.username);
             if (i < youtubeClients.length - 1) {
                 await delay(10000);
-                console.log(chatId, `⌛ Loading next user...`);
+                if (bot) await bot.sendMessage(chatId, `⌛ Loading next user...`);
             }
         } catch (error) {
             console.error(`❌ Error posting comment for ${user.username}:`, error.message);
-            console.log(chatId, `⚠️ Failed to post comment for ${user.username}`);
+            if (bot) await bot.sendMessage(chatId, `⚠️ Failed to post comment for ${user.username}`);
             failedUsers.push(user.username);
         }
     }
     let summaryMessage = `🏁 All users finished posting comments!\n\n`;
     if (successUsers.length > 0) summaryMessage += `✅ *Successful*: ${successUsers.map(u => `\`${u}\``).join(', ')}\n`;
     if (failedUsers.length > 0) summaryMessage += `⚠️ *Failed*: ${failedUsers.map(u => `\`${u}\``).join(', ')}`;
-    await bot.sendMessage(chatId, summaryMessage.trim(), { parse_mode: 'Markdown' });
+    if (bot) await bot.sendMessage(chatId, summaryMessage.trim(), { parse_mode: 'Markdown' });
 }
-
-bot.on('message', async (msg) => {
-    const chatId = msg.chat.id;
-    const text = msg.text || msg.caption;
-    if (!text) return;
-    const youtubeLink = text.match(/(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/);
-    if (!youtubeLink) return;
-    const videoId = extractVideoId(youtubeLink[0]);
-    if (!videoId) {
-        bot.sendMessage(chatId, '❌ Invalid YouTube link. Please try again.');
-        return;
-    }
-    bot.sendMessage(chatId, '🔍 Analyzing the video...');
-    const source = await getCommentsOrMetadata(videoId, youtubeClients[0].youtube);
-    await postComment(videoId, source, chatId);
-});
-
-bot.onText(/\/start/, (msg) => {
-    bot.sendMessage(msg.chat.id, "🤖 Welcome! Send me a YouTube link (normal or Shorts), and I'll post a comment using all available accounts.");
-});
 
 const postedVideoIds = new Set();
 
-async function getTrendingVideosInIndonesia(youtube, maxResults = 100) {
+async function getTrendingVideosInIndonesia(youtube, maxResults = 50) {
     try {
         const response = await youtube.videos.list({
             part: 'snippet',
@@ -328,7 +319,12 @@ async function getTrendingVideosInIndonesia(youtube, maxResults = 100) {
     }
 }
 
-async function fetchAndPostTrending(bot, youtube, chatId, maxResults = 100) {
+async function fetchAndPostTrending(bot, youtube, chatId, maxResults = 50) {
+    if (!bot) return;
+    if (!youtube) {
+        bot.sendMessage(chatId, '⚠️ No authenticated YouTube account loaded to fetch trending videos.');
+        return;
+    }
     const videos = await getTrendingVideosInIndonesia(youtube, maxResults);
     const newVideos = videos.filter(video => !postedVideoIds.has(video.id));
     if (newVideos.length === 0) {
@@ -336,16 +332,51 @@ async function fetchAndPostTrending(bot, youtube, chatId, maxResults = 100) {
         return;
     }
     newVideos.forEach(video => postedVideoIds.add(video.id));
-    let message = "🔥 *Trending YouTube Videos in Indonesia:*\n\n";
-    newVideos.forEach((vid, i) => {
-        message += `${i + 1}. [${vid.title}](${vid.url})\n`;
-    });
-    await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+
+    const CHUNK_SIZE = 15;
+    for (let i = 0; i < newVideos.length; i += CHUNK_SIZE) {
+        const chunk = newVideos.slice(i, i + CHUNK_SIZE);
+        let message = i === 0 ? "🔥 *Trending YouTube Videos in Indonesia:*\n\n" : "";
+        chunk.forEach((vid, idx) => {
+            const cleanTitle = vid.title.replace(/[[\]()]/g, '');
+            message += `${i + idx + 1}. [${cleanTitle}](${vid.url})\n`;
+        });
+        await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+    }
 }
 
-bot.onText(/\/viral/, async (msg) => {
-    const chatId = msg.chat.id;
-    await fetchAndPostTrending(bot, youtubeClients[0].youtube, chatId);
-});
+if (bot) {
+    bot.on('message', async (msg) => {
+        const chatId = msg.chat.id;
+        const text = msg.text || msg.caption;
+        if (!text) return;
+        const youtubeLink = text.match(/(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/);
+        if (!youtubeLink) return;
+        const videoId = extractVideoId(youtubeLink[0]);
+        if (!videoId) {
+            bot.sendMessage(chatId, '❌ Invalid YouTube link. Please try again.');
+            return;
+        }
+        if (youtubeClients.length === 0) {
+            bot.sendMessage(chatId, '⚠️ No authenticated YouTube accounts available. Please add accounts in tokens/ folder.');
+            return;
+        }
+        bot.sendMessage(chatId, '🔍 Analyzing the video...');
+        const source = await getCommentsOrMetadata(videoId, youtubeClients[0].youtube);
+        await postComment(videoId, source, chatId);
+    });
 
-console.log('🤖 Bot is running...');
+    bot.onText(/\/start/, (msg) => {
+        bot.sendMessage(msg.chat.id, "🤖 Welcome! Send me a YouTube link (normal or Shorts), and I'll post a comment using all available accounts.");
+    });
+
+    bot.onText(/\/viral/, async (msg) => {
+        const chatId = msg.chat.id;
+        const yt = youtubeClients.length > 0 ? youtubeClients[0].youtube : null;
+        await fetchAndPostTrending(bot, yt, chatId);
+    });
+
+    console.log('🤖 Telegram bot is running and listening for messages...');
+} else {
+    console.warn('⚠️ Telegram bot polling disabled because TELEGRAM_BOT_TOKEN is not configured.');
+}
