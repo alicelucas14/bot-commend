@@ -284,8 +284,13 @@ function delay(ms) {
 }
 
 function extractVideoId(url) {
-  const regex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:shorts\/|watch\?v=)|youtu\.be\/)([^"&?/\s]{11})/;
-  const match = url.match(regex);
+  if (!url) return null;
+  const str = String(url).trim();
+  // Direct 11-char ID
+  if (/^[a-zA-Z0-9_-]{11}$/.test(str)) return str;
+  // Support youtube.com (watch, shorts, live, embed) and youtu.be
+  const regex = /(?:https?:\/\/)?(?:www\.|m\.)?(?:youtube\.com\/(?:shorts\/|live\/|embed\/|v\/|watch\?(?:.*&)?v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
+  const match = str.match(regex);
   return match ? match[1] : null;
 }
 
@@ -564,23 +569,53 @@ async function postComments(videoId, language = 'Indonesian') {
 
 // ─── Trending Videos ─────────────────────────────────────────
 async function getTrendingVideos(regionCode = 'ID', maxResults = 20) {
-  if (users.length === 0) throw new Error('No accounts loaded');
-  const youtube = users[0].youtube;
-  const response = await youtube.videos.list({
-    part: 'snippet,statistics',
-    chart: 'mostPopular',
-    regionCode,
-    maxResults,
-  });
-  return (response.data.items || []).map(video => ({
-    id:         video.id,
-    title:      video.snippet.title,
-    channel:    video.snippet.channelTitle,
-    thumbnail:  video.snippet.thumbnails?.medium?.url || `https://i.ytimg.com/vi/${video.id}/mqdefault.jpg`,
-    views:      Number(video.statistics?.viewCount || 0).toLocaleString(),
-    url:        `https://www.youtube.com/watch?v=${video.id}`,
-    publishedAt: video.snippet.publishedAt,
-  }));
+  const apiKey = process.env.YOUTUBE_API_KEY || YOUTUBE_API_KEY;
+  if (apiKey) {
+    try {
+      const response = await axios.get('https://www.googleapis.com/youtube/v3/videos', {
+        params: {
+          part: 'snippet,statistics',
+          chart: 'mostPopular',
+          regionCode,
+          maxResults,
+          key: apiKey,
+        },
+        timeout: 10000,
+      });
+      return (response.data.items || []).map(video => ({
+        id:          video.id,
+        title:       video.snippet.title,
+        channel:     video.snippet.channelTitle,
+        thumbnail:   video.snippet.thumbnails?.medium?.url || `https://i.ytimg.com/vi/${video.id}/mqdefault.jpg`,
+        views:       Number(video.statistics?.viewCount || 0).toLocaleString(),
+        url:         `https://www.youtube.com/watch?v=${video.id}`,
+        publishedAt: video.snippet.publishedAt,
+      }));
+    } catch (err) {
+      botWarn(`⚠️ Trending via API key failed (${err.message}), trying user accounts...`);
+    }
+  }
+
+  if (users.length > 0) {
+    const youtube = users[0].youtube;
+    const response = await youtube.videos.list({
+      part: 'snippet,statistics',
+      chart: 'mostPopular',
+      regionCode,
+      maxResults,
+    });
+    return (response.data.items || []).map(video => ({
+      id:          video.id,
+      title:       video.snippet.title,
+      channel:     video.snippet.channelTitle,
+      thumbnail:   video.snippet.thumbnails?.medium?.url || `https://i.ytimg.com/vi/${video.id}/mqdefault.jpg`,
+      views:       Number(video.statistics?.viewCount || 0).toLocaleString(),
+      url:         `https://www.youtube.com/watch?v=${video.id}`,
+      publishedAt: video.snippet.publishedAt,
+    }));
+  }
+
+  throw new Error('No YouTube accounts loaded and no YOUTUBE_API_KEY configured in Settings');
 }
 
 // ─── Auth Middleware ──────────────────────────────────────────
@@ -995,7 +1030,7 @@ app.get('/api/auth/google/start', requireAuth, (req, res) => {
   const { username = `user${users.length + 1}` } = req.query;
   const safeName    = username.replace(/[^a-z0-9_\-]/gi, '_');
   // Use the redirect URI already registered in Google Cloud Console
-  const callbackUrl = process.env.GOOGLE_REDIRECT_URI || `http://localhost:${PORT}/auth/callback`;
+  const callbackUrl = process.env.GOOGLE_REDIRECT_URI || `http://localhost:${PORT}/oauth2callback`;
 
   const oauth2Client = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET, callbackUrl);
   const authUrl = oauth2Client.generateAuthUrl({
@@ -1071,65 +1106,70 @@ app.post('/api/post-comment', requireAuth, async (req, res) => {
   botLog(`▶️ Multi-platform blast: [${selectedPlatforms.join(', ')}] | Lang: ${language} | URL: ${url}`);
   io.emit('postStart', { url, videoId, language, countryCode, platforms: selectedPlatforms });
 
-  // ── YouTube: use full multi-account logic ──
-  if (selectedPlatforms.includes('youtube')) {
-    if (!videoId) {
-      botWarn('⚠️ YouTube selected but URL is not a valid YouTube link — skipping YouTube');
-    } else {
-      postComments(videoId, language).then(result => {
-        stats.platformStats.youtube += result.success.length;
-        io.emit('platformDone', { platform: 'youtube', ...result });
-      }).catch(err => {
-        botError(`❌ YouTube blast failed: ${err.message}`);
-      });
-    }
-  }
-
-  // ── Other platforms: generate one comment and post ──
-  const otherPlatforms = selectedPlatforms.filter(p => p !== 'youtube');
-
-  if (otherPlatforms.length > 0) {
-    // Generate the comment content once (use video data or URL as context)
-    (async () => {
-      let input = url;
-      let sourceType = 'metadata';
-      try {
-        if (videoId && users.length > 0) {
-          const src = await getCommentsOrMetadata(videoId, users[0].youtube);
-          input      = src.type === 'comments'
-            ? src.data[Math.floor(Math.random() * src.data.length)]
-            : src.data;
-          sourceType = src.type;
-        }
-      } catch {}
-
-      for (const platformId of otherPlatforms) {
-        const platform = PLATFORM_REGISTRY[platformId];
-        if (!platform) { botWarn(`⚠️ Unknown platform: ${platformId}`); continue; }
-        if (!platform.isConfigured()) {
-          botWarn(`⚠️ ${platform.name} not configured — skipping`);
-          io.emit('platformDone', { platform: platformId, success: [], failed: ['not configured'] });
-          continue;
-        }
-        try {
-          botLog(`🔄 Generating ${language} comment for ${platform.icon} ${platform.name}...`);
-          const comment = await generateReply(input, sourceType, language);
-          botLog(`📤 Posting to ${platform.icon} ${platform.name}...`);
-          await platform.postComment(url, comment);
-          stats.platformStats[platformId] = (stats.platformStats[platformId] || 0) + 1;
-          botOk(`✅ ${platform.icon} ${platform.name}: comment posted!`);
-          io.emit('platformDone', { platform: platformId, success: [platformId], failed: [] });
-        } catch (err) {
-          botError(`❌ ${platform.icon} ${platform.name} failed: ${err.message}`);
-          io.emit('platformDone', { platform: platformId, success: [], failed: [err.message] });
+  // Execute blast in background with coordinated lifecycle
+  (async () => {
+    try {
+      // ── YouTube posting ──
+      if (selectedPlatforms.includes('youtube')) {
+        if (!videoId) {
+          botWarn('⚠️ YouTube selected but URL is not a valid YouTube link or ID — skipping YouTube');
+          io.emit('platformDone', { platform: 'youtube', success: [], failed: ['Invalid video URL / ID'] });
+        } else {
+          try {
+            const ytResult = await postComments(videoId, language);
+            stats.platformStats.youtube += (ytResult?.success?.length || 0);
+            io.emit('platformDone', { platform: 'youtube', ...(ytResult || { success: [], failed: [] }) });
+          } catch (ytErr) {
+            botError(`❌ YouTube blast failed: ${ytErr.message}`);
+            io.emit('platformDone', { platform: 'youtube', success: [], failed: [ytErr.message] });
+          }
         }
       }
 
+      // ── Other platforms ──
+      const otherPlatforms = selectedPlatforms.filter(p => p !== 'youtube');
+      if (otherPlatforms.length > 0) {
+        let input = url;
+        let sourceType = 'metadata';
+        try {
+          if (videoId && users.length > 0) {
+            const src = await getCommentsOrMetadata(videoId, users[0].youtube);
+            input      = src.type === 'comments'
+              ? src.data[Math.floor(Math.random() * src.data.length)]
+              : src.data;
+            sourceType = src.type;
+          }
+        } catch {}
+
+        for (const platformId of otherPlatforms) {
+          const platform = PLATFORM_REGISTRY[platformId];
+          if (!platform) { botWarn(`⚠️ Unknown platform: ${platformId}`); continue; }
+          if (!platform.isConfigured()) {
+            botWarn(`⚠️ ${platform.name} not configured — skipping`);
+            io.emit('platformDone', { platform: platformId, success: [], failed: ['not configured'] });
+            continue;
+          }
+          try {
+            botLog(`🔄 Generating ${language} comment for ${platform.icon} ${platform.name}...`);
+            const comment = await generateReply(input, sourceType, language);
+            botLog(`📤 Posting to ${platform.icon} ${platform.name}...`);
+            await platform.postComment(url, comment);
+            stats.platformStats[platformId] = (stats.platformStats[platformId] || 0) + 1;
+            botOk(`✅ ${platform.icon} ${platform.name}: comment posted!`);
+            io.emit('platformDone', { platform: platformId, success: [platformId], failed: [] });
+          } catch (err) {
+            botError(`❌ ${platform.icon} ${platform.name} failed: ${err.message}`);
+            io.emit('platformDone', { platform: platformId, success: [], failed: [err.message] });
+          }
+        }
+      }
+    } catch (globalErr) {
+      botError(`❌ Unhandled error during comment blast: ${globalErr.message}`);
+    } finally {
+      // Guaranteed to fire postDone when all platforms (including YouTube) finish
       io.emit('postDone', { platforms: selectedPlatforms });
-    })();
-  } else if (!selectedPlatforms.includes('youtube')) {
-    io.emit('postDone', { platforms: [] });
-  }
+    }
+  })();
 
   res.json({ success: true, message: 'Multi-platform posting started. Watch the live log.' });
 });

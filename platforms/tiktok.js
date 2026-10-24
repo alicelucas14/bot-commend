@@ -6,8 +6,11 @@ const { getBrowser, isPuppeteerAvailable } = require('./browser');
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-const TIKTOK_USERNAME = process.env.TIKTOK_USERNAME;
-const TIKTOK_PASSWORD = process.env.TIKTOK_PASSWORD;
+// Helper to read latest environment variables dynamically
+const getTikTokCredentials = () => ({
+  username: process.env.TIKTOK_USERNAME || '',
+  password: process.env.TIKTOK_PASSWORD || '',
+});
 
 let sessionCookies = null; // cache login session
 
@@ -25,7 +28,8 @@ const META = {
 };
 
 function isConfigured() {
-  return !!(TIKTOK_USERNAME && TIKTOK_PASSWORD && isPuppeteerAvailable());
+  const { username, password } = getTikTokCredentials();
+  return !!(username && password && isPuppeteerAvailable());
 }
 
 async function ensureLogin(page) {
@@ -43,15 +47,16 @@ async function ensureLogin(page) {
   });
   await delay(2000);
 
+  const { username, password } = getTikTokCredentials();
   // Fill credentials
   const usernameSelectors = ['input[name="username"]', 'input[autocomplete="username"]', 'input[type="text"]'];
   for (const sel of usernameSelectors) {
     const el = await page.$(sel);
-    if (el) { await el.type(TIKTOK_USERNAME, { delay: 60 }); break; }
+    if (el) { await el.type(username, { delay: 60 }); break; }
   }
 
   await delay(500);
-  await page.type('input[type="password"]', TIKTOK_PASSWORD, { delay: 60 });
+  await page.type('input[type="password"]', password, { delay: 60 });
   await delay(500);
 
   // Click login button
@@ -167,8 +172,9 @@ async function getTrending(regionCode = 'US', maxResults = 20) {
 
 async function testConnection() {
   if (!isPuppeteerAvailable()) return { ok: false, message: 'Puppeteer not installed — run npm install puppeteer puppeteer-extra puppeteer-extra-plugin-stealth' };
-  if (!TIKTOK_USERNAME || !TIKTOK_PASSWORD) return { ok: false, message: 'TIKTOK_USERNAME / TIKTOK_PASSWORD not set in .env' };
-  return { ok: true, message: `Configured as @${TIKTOK_USERNAME} — will log in on first post` };
+  const { username, password } = getTikTokCredentials();
+  if (!username || !password) return { ok: false, message: 'TIKTOK_USERNAME / TIKTOK_PASSWORD not set in .env' };
+  return { ok: true, message: `Configured as @${username} — will log in on first post` };
 }
 
 module.exports = { ...META, isConfigured, testConnection, postComment, getTrending };

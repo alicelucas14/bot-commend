@@ -4,8 +4,10 @@
 require('dotenv').config();
 const axios = require('axios');
 
-const ACCESS_TOKEN = process.env.FACEBOOK_PAGE_ACCESS_TOKEN;
-const PAGE_ID      = process.env.FACEBOOK_PAGE_ID;
+const getFacebookCredentials = () => ({
+  accessToken: process.env.FACEBOOK_PAGE_ACCESS_TOKEN || '',
+  pageId:      process.env.FACEBOOK_PAGE_ID || '',
+});
 const GRAPH_URL    = 'https://graph.facebook.com/v19.0';
 
 const META = {
@@ -22,7 +24,8 @@ const META = {
 };
 
 function isConfigured() {
-  return !!(ACCESS_TOKEN && PAGE_ID);
+  const { accessToken, pageId } = getFacebookCredentials();
+  return !!(accessToken && pageId);
 }
 
 function extractPostId(url) {
@@ -43,15 +46,17 @@ async function postComment(postUrl, comment) {
   const postId = extractPostId(postUrl);
   if (!postId) throw new Error('Invalid Facebook post URL — need a /posts/ID or story_fbid= URL');
 
+  const { accessToken } = getFacebookCredentials();
   const res = await axios.post(
     `${GRAPH_URL}/${postId}/comments`,
     { message: comment },
-    { params: { access_token: ACCESS_TOKEN } }
+    { params: { access_token: accessToken } }
   );
   return { success: true, commentId: res.data.id, platform: 'facebook' };
 }
 
 async function testConnection() {
+  const { accessToken, pageId } = getFacebookCredentials();
   if (!isConfigured()) {
     return {
       ok:      false,
@@ -59,8 +64,8 @@ async function testConnection() {
     };
   }
   try {
-    const res = await axios.get(`${GRAPH_URL}/${PAGE_ID}`, {
-      params: { fields: 'name,fan_count', access_token: ACCESS_TOKEN },
+    const res = await axios.get(`${GRAPH_URL}/${pageId}`, {
+      params: { fields: 'name,fan_count', access_token: accessToken },
     });
     return {
       ok:      true,

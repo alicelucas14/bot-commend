@@ -6,8 +6,11 @@ const { getBrowser, isPuppeteerAvailable } = require('./browser');
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-const IG_USERNAME = process.env.INSTAGRAM_USERNAME;
-const IG_PASSWORD = process.env.INSTAGRAM_PASSWORD;
+// Helper to read latest environment variables dynamically
+const getInstagramCredentials = () => ({
+  username: process.env.INSTAGRAM_USERNAME || '',
+  password: process.env.INSTAGRAM_PASSWORD || '',
+});
 
 let sessionCookies = null;
 
@@ -25,7 +28,8 @@ const META = {
 };
 
 function isConfigured() {
-  return !!(IG_USERNAME && IG_PASSWORD && isPuppeteerAvailable());
+  const { username, password } = getInstagramCredentials();
+  return !!(username && password && isPuppeteerAvailable());
 }
 
 async function ensureLogin(page) {
@@ -39,9 +43,10 @@ async function ensureLogin(page) {
   await page.goto('https://www.instagram.com/accounts/login/', { waitUntil: 'networkidle2', timeout: 30000 });
   await delay(2000);
 
+  const { username, password } = getInstagramCredentials();
   await page.waitForSelector('input[name="username"]', { timeout: 10000 });
-  await page.type('input[name="username"]', IG_USERNAME, { delay: 60 });
-  await page.type('input[name="password"]', IG_PASSWORD, { delay: 60 });
+  await page.type('input[name="username"]', username, { delay: 60 });
+  await page.type('input[name="password"]', password, { delay: 60 });
   await delay(500);
 
   await page.click('button[type="submit"]');
@@ -130,8 +135,9 @@ async function postComment(postUrl, comment) {
 
 async function testConnection() {
   if (!isPuppeteerAvailable()) return { ok: false, message: 'Puppeteer not installed' };
-  if (!IG_USERNAME || !IG_PASSWORD) return { ok: false, message: 'INSTAGRAM_USERNAME / INSTAGRAM_PASSWORD not set in .env' };
-  return { ok: true, message: `Configured as @${IG_USERNAME} — will log in on first post` };
+  const { username, password } = getInstagramCredentials();
+  if (!username || !password) return { ok: false, message: 'INSTAGRAM_USERNAME / INSTAGRAM_PASSWORD not set in .env' };
+  return { ok: true, message: `Configured as @${username} — will log in on first post` };
 }
 
 module.exports = { ...META, isConfigured, testConnection, postComment };
