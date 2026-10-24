@@ -64,7 +64,8 @@ const DEFAULT_COUNTRIES = [
   { code: 'TH', name: 'Thailand',        flag: '🇹🇭', language: 'Thai' },
   { code: 'VN', name: 'Vietnam',         flag: '🇻🇳', language: 'Vietnamese' },
   { code: 'SG', name: 'Singapore',       flag: '🇸🇬', language: 'English' },
-  { code: 'IN', name: 'India',           flag: '🇮🇳', language: 'Hindi' },
+  { code: 'IN', name: 'India (Hindi)',   flag: '🇮🇳', language: 'Hindi' },
+  { code: 'IN-HG', name: 'India (Hinglish)', flag: '🇮🇳', language: 'Hinglish (Hindi written in Roman English alphabet)' },
   { code: 'PK', name: 'Pakistan',        flag: '🇵🇰', language: 'Urdu' },
   { code: 'BD', name: 'Bangladesh',      flag: '🇧🇩', language: 'Bengali' },
   { code: 'JP', name: 'Japan',           flag: '🇯🇵', language: 'Japanese' },
@@ -576,7 +577,7 @@ async function getTrendingVideos(regionCode = 'ID', maxResults = 20) {
         params: {
           part: 'snippet,statistics',
           chart: 'mostPopular',
-          regionCode,
+          regionCode: (regionCode || 'US').substring(0, 2),
           maxResults,
           key: apiKey,
         },

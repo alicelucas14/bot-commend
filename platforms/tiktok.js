@@ -2,7 +2,7 @@
 // platforms/tiktok.js — TikTok via Puppeteer automation
 // ============================================================
 require('dotenv').config();
-const { getBrowser, isPuppeteerAvailable } = require('./browser');
+const { getBrowser, newPageWithProxy, isPuppeteerAvailable } = require('./browser');
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -75,7 +75,7 @@ async function postComment(videoUrl, comment) {
   if (!isConfigured()) throw new Error('TikTok credentials not configured (TIKTOK_USERNAME / TIKTOK_PASSWORD)');
 
   const browser = await getBrowser();
-  const page    = await browser.newPage();
+  const page    = await newPageWithProxy(browser);
 
   try {
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
@@ -130,12 +130,26 @@ async function getTrending(regionCode = 'US', maxResults = 20) {
   if (!isPuppeteerAvailable()) throw new Error('Puppeteer not installed');
 
   const browser = await getBrowser();
-  const page    = await browser.newPage();
+  const page    = await newPageWithProxy(browser);
 
   try {
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
-    await page.goto('https://www.tiktok.com/trending', { waitUntil: 'networkidle2', timeout: 30000 });
-    await delay(4000);
+    
+    // Regional targeting: TikTok has no official India trending feed due to the local ban,
+    // so we target viral Indian diaspora & desi content tags.
+    let targetUrl = 'https://www.tiktok.com/trending';
+    if (regionCode === 'IN') {
+      targetUrl = 'https://www.tiktok.com/tag/desi';
+    }
+
+    await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 30000 });
+    await delay(3000);
+
+    // Scroll slightly to trigger video loading
+    try {
+      await page.evaluate(() => window.scrollBy(0, 1000));
+      await delay(2000);
+    } catch {}
 
     const videos = await page.evaluate((max) => {
       const anchors = Array.from(document.querySelectorAll('a[href*="/video/"]'));

@@ -451,31 +451,33 @@ function setupTrendingTab() {
 async function fetchTrending() {
   const country  = getSelectedCountry('trendingCountrySelect');
   const max      = document.getElementById('trendingMaxResults').value;
+  const platform = document.getElementById('trendingPlatformSelect')?.value || 'youtube';
   const grid     = document.getElementById('trendingGrid');
   const status   = document.getElementById('trendingStatus');
   const btn      = document.getElementById('fetchTrendingBtn');
 
   btn.disabled = true;
   btn.textContent = '⏳ Loading...';
-  status.textContent = `🔍 Fetching trending videos for ${country.flag} ${country.name}...`;
+  const platformName = platform === 'tiktok' ? 'TikTok' : platform === 'reddit' ? 'Reddit' : 'YouTube';
+  status.textContent = `🔍 Fetching ${platformName} trending for ${country.flag} ${country.name}...`;
   status.className = 'section-status loading';
   status.classList.remove('hidden');
   grid.innerHTML = '<div class="spinner" style="margin:40px auto;grid-column:1/-1;"></div>';
 
   try {
-    const res  = await api(`/api/trending?region=${country.code}&max=${max}`);
+    const res  = await api(`/api/trending?region=${country.code}&max=${max}&platform=${platform}`);
     const data = await res.json();
 
     if (!res.ok) throw new Error(data.error || 'Failed to fetch');
 
     const { videos } = data;
-    status.textContent = `✅ ${videos.length} trending videos in ${country.flag} ${country.name}`;
+    status.textContent = `✅ ${videos.length} ${platformName} trending items in ${country.flag} ${country.name}`;
     status.className = 'section-status';
 
     if (videos.length === 0) {
       grid.innerHTML = '<div class="empty-state-large"><span class="empty-icon">📭</span><p>No videos found for this region.</p></div>';
     } else {
-      grid.innerHTML = videos.map((v, i) => videoCard(v, i + 1, country)).join('');
+      grid.innerHTML = videos.map((v, i) => videoCard(v, i + 1, country, platform)).join('');
       // Attach post buttons
       grid.querySelectorAll('.video-post-btn').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -485,8 +487,12 @@ async function fetchTrending() {
           document.getElementById('videoUrlInput').value = url;
           document.getElementById('postCountrySelect').value = country.code;
           updateLanguageHint();
+          // Auto-select the source platform
+          selectedPlatforms.clear();
+          selectedPlatforms.add(platform);
+          renderPlatformToggles();
           switchTab('post');
-          toast(`📺 Video loaded — Click "Blast Comments" to post`, 'info');
+          toast(`Loaded ${platformName} video — Click "Blast Comments" to post`, 'info');
         });
       });
     }
@@ -500,15 +506,16 @@ async function fetchTrending() {
   }
 }
 
-function videoCard(v, rank, country) {
+function videoCard(v, rank, country, platform = 'youtube') {
   const thumb = v.thumbnail || `https://i.ytimg.com/vi/${v.id}/mqdefault.jpg`;
+  const platformIcon = platform === 'tiktok' ? '🎵' : platform === 'reddit' ? '🟠' : '🎥';
   return `
     <div class="video-card">
       <img class="video-thumb" src="${thumb}" alt="${escHtml(v.title)}" loading="lazy" onerror="this.src='https://i.ytimg.com/vi/${v.id}/mqdefault.jpg'" />
       <div class="video-body">
-        <div class="video-rank">#${rank} Trending • ${country.flag} ${country.name}</div>
+        <div class="video-rank">#${rank} ${platformIcon} • ${country.flag} ${country.name}</div>
         <div class="video-title" title="${escHtml(v.title)}">${escHtml(v.title)}</div>
-        <div class="video-meta">📺 ${escHtml(v.channel)} &nbsp;·&nbsp; 👁️ ${v.views} views</div>
+        <div class="video-meta">📺 ${escHtml(v.channel)} &nbsp;·&nbsp; 👁️ ${v.views || 'Viral'}</div>
       </div>
       <div class="video-footer">
         <button class="btn btn-primary btn-sm btn-full video-post-btn"

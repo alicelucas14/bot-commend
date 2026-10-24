@@ -109,9 +109,15 @@
   },
   {
     "code": "IN",
-    "name": "India",
+    "name": "India (Hindi)",
     "flag": "🇮🇳",
     "language": "Hindi"
+  },
+  {
+    "code": "IN-HG",
+    "name": "India (Hinglish)",
+    "flag": "🇮🇳",
+    "language": "Hinglish (Hindi written in Roman English alphabet)"
   },
   {
     "code": "PK",

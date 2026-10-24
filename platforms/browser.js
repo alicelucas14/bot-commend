@@ -36,22 +36,42 @@ async function getBrowser() {
     browser = null;
   }
 
+  const args = [
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-blink-features=AutomationControlled',
+    '--disable-web-security',
+    '--window-size=1280,800',
+  ];
+
+  // If proxy is enabled in .env, route Puppeteer through proxy (vital for TikTok in restricted regions like India)
+  if (process.env.PROXYLAB_ENABLED === 'true' && process.env.PROXYLAB_HOST) {
+    const port = process.env.PROXYLAB_PORT || '8080';
+    args.push(`--proxy-server=http://${process.env.PROXYLAB_HOST}:${port}`);
+    console.log(`🛡️ Puppeteer using proxy: ${process.env.PROXYLAB_HOST}:${port}`);
+  }
+
   browser = await puppeteer.launch({
     headless: true,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-blink-features=AutomationControlled',
-      '--disable-web-security',
-      '--window-size=1280,800',
-    ],
+    args,
     ignoreDefaultArgs: ['--enable-automation'],
     defaultViewport: { width: 1280, height: 800 },
   });
 
   lastUsed = Date.now();
   return browser;
+}
+
+async function newPageWithProxy(browserInstance) {
+  const page = await browserInstance.newPage();
+  if (process.env.PROXYLAB_ENABLED === 'true' && process.env.PROXYLAB_USERNAME && process.env.PROXYLAB_PASSWORD) {
+    await page.authenticate({
+      username: process.env.PROXYLAB_USERNAME,
+      password: process.env.PROXYLAB_PASSWORD,
+    });
+  }
+  return page;
 }
 
 async function closeBrowser() {
@@ -65,4 +85,4 @@ function isPuppeteerAvailable() {
   return puppeteer !== null;
 }
 
-module.exports = { getBrowser, closeBrowser, isPuppeteerAvailable };
+module.exports = { getBrowser, newPageWithProxy, closeBrowser, isPuppeteerAvailable };
