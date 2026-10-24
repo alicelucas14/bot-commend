@@ -43,30 +43,108 @@ async function ensureLogin(page) {
 
   // Full login flow
   await page.goto('https://www.tiktok.com/login/phone-or-email/email', {
-    waitUntil: 'networkidle2', timeout: 30000,
+    waitUntil: 'domcontentloaded', timeout: 35000,
   });
-  await delay(2000);
+  await delay(3000);
+
+  // Switch to "Log in with email or username" if needed
+  try {
+    await page.evaluate(() => {
+      const els = Array.from(document.querySelectorAll('a, button, div, span'));
+      for (const el of els) {
+        if (/log in with email|email or username/i.test(el.innerText || '')) {
+          el.click();
+          break;
+        }
+      }
+    });
+    await delay(1500);
+  } catch {}
+
+  // Switch to "Log in with password" if showing code login
+  try {
+    await page.evaluate(() => {
+      const els = Array.from(document.querySelectorAll('a, button, div, span'));
+      for (const el of els) {
+        if (/log in with password|with password/i.test(el.innerText || '')) {
+          el.click();
+          break;
+        }
+      }
+    });
+    await delay(1500);
+  } catch {}
 
   const { username, password } = getTikTokCredentials();
-  // Fill credentials
-  const usernameSelectors = ['input[name="username"]', 'input[autocomplete="username"]', 'input[type="text"]'];
+
+  // Fill username/email
+  const usernameSelectors = [
+    'input[name="username"]',
+    'input[autocomplete="username"]',
+    'input[type="text"]',
+    'input[placeholder*="email" i]',
+    'input[placeholder*="username" i]',
+  ];
   for (const sel of usernameSelectors) {
-    const el = await page.$(sel);
-    if (el) { await el.type(username, { delay: 60 }); break; }
+    try {
+      const el = await page.$(sel);
+      if (el) {
+        await el.click();
+        await delay(200);
+        await el.type(username, { delay: 60 });
+        break;
+      }
+    } catch {}
   }
 
-  await delay(500);
-  await page.type('input[type="password"]', password, { delay: 60 });
-  await delay(500);
+  await delay(800);
+
+  // Toggle "Log in with password" again if needed
+  try {
+    await page.evaluate(() => {
+      const els = Array.from(document.querySelectorAll('a, button, div, span'));
+      for (const el of els) {
+        if (/log in with password|with password/i.test(el.innerText || '')) {
+          el.click();
+          break;
+        }
+      }
+    });
+    await delay(1500);
+  } catch {}
+
+  // Find password field
+  const passwordSelectors = [
+    'input[type="password"]',
+    'input[autocomplete*="password"]',
+    'input[placeholder*="password" i]',
+  ];
+
+  let passField = null;
+  for (const sel of passwordSelectors) {
+    passField = await page.waitForSelector(sel, { timeout: 4000 }).catch(() => null);
+    if (passField) {
+      await passField.click();
+      await delay(200);
+      await passField.type(password, { delay: 60 });
+      break;
+    }
+  }
+
+  if (!passField) {
+    throw new Error('TikTok login: password input not found. TikTok may require manual captcha verification or email code.');
+  }
+
+  await delay(800);
 
   // Click login button
-  const loginBtnSelectors = ['button[data-e2e="login-button"]', 'button[type="submit"]', 'button.login-button'];
+  const loginBtnSelectors = ['button[data-e2e="login-button"]', 'button[type="submit"]', 'button.login-button', 'form button'];
   for (const sel of loginBtnSelectors) {
     const el = await page.$(sel);
     if (el) { await el.click(); break; }
   }
 
-  await delay(5000);
+  await delay(6000);
   sessionCookies = await page.cookies();
   return !page.url().includes('/login');
 }
