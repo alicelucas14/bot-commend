@@ -2,6 +2,8 @@
 // platforms/tiktok.js — TikTok via Puppeteer automation
 // ============================================================
 require('dotenv').config();
+const fs = require('fs');
+const path = require('path');
 const { getBrowser, newPageWithProxy, isPuppeteerAvailable } = require('./browser');
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -13,6 +15,36 @@ const getTikTokCredentials = () => ({
 });
 
 let sessionCookies = null; // cache login session
+
+function getCookieFile() {
+  return path.join(__dirname, '..', 'tokens', 'tiktok_cookies.json');
+}
+
+function loadSavedCookies() {
+  const file = getCookieFile();
+  if (!fs.existsSync(file)) return null;
+  try {
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (!Array.isArray(raw) || raw.length === 0) return null;
+    return raw.map(c => {
+      const item = {
+        name: c.name,
+        value: String(c.value),
+        domain: c.domain.startsWith('.') ? c.domain : `.${c.domain}`,
+        path: c.path || '/',
+        httpOnly: Boolean(c.httpOnly),
+        secure: Boolean(c.secure),
+      };
+      if (c.sameSite === 'no_restriction') item.sameSite = 'None';
+      else if (c.sameSite === 'lax') item.sameSite = 'Lax';
+      else if (c.sameSite === 'strict') item.sameSite = 'Strict';
+      return item;
+    });
+  } catch (err) {
+    console.warn('⚠️ Error loading saved TikTok cookies:', err.message);
+    return null;
+  }
+}
 
 const META = {
   id:     'tiktok',
@@ -29,19 +61,25 @@ const META = {
 
 function isConfigured() {
   const { username, password } = getTikTokCredentials();
-  return !!(username && password && isPuppeteerAvailable());
+  const hasCookies = !!loadSavedCookies();
+  return !!((hasCookies || (username && password)) && isPuppeteerAvailable());
 }
 
 async function ensureLogin(page) {
-  // Restore cached cookies if available
-  if (sessionCookies) {
-    await page.setCookie(...sessionCookies);
-    await page.goto('https://www.tiktok.com', { waitUntil: 'networkidle2', timeout: 30000 });
-    const loggedIn = await page.evaluate(() => !!document.querySelector('a[href*="/profile"]'));
-    if (loggedIn) return true;
+  // 1. Check for saved session cookies from tokens/tiktok_cookies.json (Bypasses all captchas!)
+  const cookiesToUse = sessionCookies || loadSavedCookies();
+  if (cookiesToUse && cookiesToUse.length > 0) {
+    try {
+      await page.setCookie(...cookiesToUse);
+      sessionCookies = cookiesToUse;
+      console.log('🍪 Loaded TikTok session cookies successfully!');
+      return true;
+    } catch (cookieErr) {
+      console.warn('⚠️ Failed to apply cookies:', cookieErr.message);
+    }
   }
 
-  // Full login flow
+  // 2. Full login flow fallback
   await page.goto('https://www.tiktok.com/login/phone-or-email/email', {
     waitUntil: 'domcontentloaded', timeout: 35000,
   });
@@ -213,6 +251,12 @@ async function getTrending(regionCode = 'US', maxResults = 20) {
   try {
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
     
+    // Inject cookies if available to prevent TikTok guest blocks
+    const cookiesToUse = sessionCookies || loadSavedCookies();
+    if (cookiesToUse && cookiesToUse.length > 0) {
+      try { await page.setCookie(...cookiesToUse); } catch {}
+    }
+
     // Regional targeting: TikTok has no official India trending feed due to the local ban,
     // so we target viral Indian diaspora & desi content tags.
     let targetUrl = 'https://www.tiktok.com/trending';
