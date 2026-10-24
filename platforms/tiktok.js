@@ -138,18 +138,32 @@ async function getTrending(regionCode = 'US', maxResults = 20) {
     // Regional targeting: TikTok has no official India trending feed due to the local ban,
     // so we target viral Indian diaspora & desi content tags.
     let targetUrl = 'https://www.tiktok.com/trending';
-    if (regionCode === 'IN') {
+    if (regionCode && (regionCode.startsWith('IN') || regionCode === 'IN')) {
       targetUrl = 'https://www.tiktok.com/tag/desi';
     }
 
-    await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 30000 });
-    await delay(3000);
+    await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 35000 });
+    await delay(3500);
 
-    // Scroll slightly to trigger video loading
+    // Dismiss any guest or cookie banners if present
     try {
-      await page.evaluate(() => window.scrollBy(0, 1000));
-      await delay(2000);
+      await page.evaluate(() => {
+        const buttons = Array.from(document.querySelectorAll('button'));
+        for (const b of buttons) {
+          if (/continue as guest|accept|decline|close/i.test(b.innerText || '')) {
+            b.click();
+          }
+        }
+      });
     } catch {}
+
+    // Scroll to trigger video card loading
+    for (let s = 0; s < 3; s++) {
+      try {
+        await page.evaluate(() => window.scrollBy(0, 1500));
+        await delay(1500);
+      } catch {}
+    }
 
     const videos = await page.evaluate((max) => {
       const anchors = Array.from(document.querySelectorAll('a[href*="/video/"]'));
