@@ -249,7 +249,7 @@ async function getTrending(regionCode = 'US', maxResults = 20) {
   const page    = await newPageWithProxy(browser);
 
   try {
-    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
     
     // Inject cookies if available to prevent TikTok guest blocks
     const cookiesToUse = sessionCookies || loadSavedCookies();
@@ -257,14 +257,29 @@ async function getTrending(regionCode = 'US', maxResults = 20) {
       try { await page.setCookie(...cookiesToUse); } catch {}
     }
 
-    // Regional targeting: TikTok has no official India trending feed due to the local ban,
-    // so we target viral Indian diaspora & desi content tags.
-    let targetUrl = 'https://www.tiktok.com/trending';
-    if (regionCode && (regionCode.startsWith('IN') || regionCode === 'IN')) {
+    // Regional targeting: TikTok removed /trending — use /explore or tag pages.
+    // India has a local ban so we target diaspora/desi content tags.
+    let targetUrl;
+    if (regionCode && (regionCode.startsWith('IN'))) {
       targetUrl = 'https://www.tiktok.com/tag/desi';
+    } else {
+      // /explore is the current trending discovery page (replaces /trending)
+      targetUrl = 'https://www.tiktok.com/explore';
     }
 
-    await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 35000 });
+    let loaded = false;
+    try {
+      await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 35000 });
+      loaded = true;
+    } catch (navErr) {
+      console.warn(`⚠️ TikTok /explore failed (${navErr.message}), retrying with /foryou...`);
+    }
+
+    // Fallback to /foryou if /explore fails or redirects
+    if (!loaded || page.url().includes('/login')) {
+      await page.goto('https://www.tiktok.com/foryou', { waitUntil: 'domcontentloaded', timeout: 35000 }).catch(() => {});
+    }
+
     await delay(3500);
 
     // Dismiss any guest or cookie banners if present
@@ -272,23 +287,28 @@ async function getTrending(regionCode = 'US', maxResults = 20) {
       await page.evaluate(() => {
         const buttons = Array.from(document.querySelectorAll('button'));
         for (const b of buttons) {
-          if (/continue as guest|accept|decline|close/i.test(b.innerText || '')) {
+          if (/continue as guest|accept|decline|close|skip/i.test(b.innerText || '')) {
             b.click();
           }
         }
       });
+      await delay(1000);
     } catch {}
 
     // Scroll to trigger video card loading
-    for (let s = 0; s < 3; s++) {
+    for (let s = 0; s < 4; s++) {
       try {
         await page.evaluate(() => window.scrollBy(0, 1500));
-        await delay(1500);
+        await delay(1200);
       } catch {}
     }
 
     const videos = await page.evaluate((max) => {
-      const anchors = Array.from(document.querySelectorAll('a[href*="/video/"]'));
+      // TikTok uses multiple link patterns depending on the page
+      const anchors = Array.from(document.querySelectorAll(
+        'a[href*="/video/"], a[href*="/@"]'
+      )).filter(a => a.href && a.href.includes('/video/'));
+
       const seen    = new Set();
       const results = [];
 
@@ -299,7 +319,8 @@ async function getTrending(regionCode = 'US', maxResults = 20) {
         seen.add(href);
 
         const img     = a.querySelector('img');
-        const titleEl = a.querySelector('[class*="title"]') || a.querySelector('p') || a.querySelector('span');
+        // Try multiple title selectors for TikTok's varying layouts
+        const titleEl = a.querySelector('[class*="title"], [class*="desc"], p, span[class*="text"]');
         const username = href.split('@')[1]?.split('/')[0] || 'unknown';
 
         results.push({

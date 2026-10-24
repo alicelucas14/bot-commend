@@ -8,6 +8,28 @@ const { google } = require('googleapis');
 const { OpenAI } = require('openai');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 const axios = require('axios');
+const cors = require('cors');
+
+// ─── Simple In-Memory Rate Limiter ────────────────────────────
+const authAttempts = new Map(); // ip -> { count, resetAt }
+const RATE_LIMIT_MAX = 5;       // max attempts
+const RATE_LIMIT_WINDOW = 15 * 60 * 1000; // 15 minutes
+
+function checkRateLimit(ip) {
+  const now = Date.now();
+  const entry = authAttempts.get(ip);
+  if (!entry || now > entry.resetAt) {
+    authAttempts.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW });
+    return true; // allowed
+  }
+  if (entry.count >= RATE_LIMIT_MAX) return false; // blocked
+  entry.count++;
+  return true;
+}
+
+function clearRateLimit(ip) {
+  authAttempts.delete(ip);
+}
 
 // ─── Platform Modules ─────────────────────────────────────────
 const platformYoutube   = require('./platforms/youtube');
@@ -35,10 +57,23 @@ require('dotenv').config();
 // ─── App Setup ────────────────────────────────────────────────
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+const io = new Server(server, {
+  // Socket.io authentication middleware
+  allowRequest: (req, callback) => {
+    const token = req.headers['x-admin-token'] || new URL(req.url, 'http://localhost').searchParams.get('token');
+    if (!token) return callback(null, false);
+    try {
+      const decoded = Buffer.from(token, 'base64').toString('utf-8');
+      callback(null, decoded === (process.env.ADMIN_PASSWORD || 'admin123'));
+    } catch {
+      callback(null, false);
+    }
+  },
+});
 const PORT = process.env.ADMIN_PORT || 4000;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
 
+app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -369,7 +404,7 @@ function injectRandomEmojis(text, niche = 'gambling') {
   };
   const emojis = sets[niche] || sets.default;
   return text.split(' ')
-    .map(w => Math.random() < 0.01 ? `${w} ${emojis[Math.floor(Math.random() * emojis.length)]}` : w)
+    .map(w => Math.random() < 0.1 ? `${w} ${emojis[Math.floor(Math.random() * emojis.length)]}` : w)
     .join(' ');
 }
 
@@ -656,10 +691,16 @@ function requireAuth(req, res, next) {
 
 // ─── API Routes ───────────────────────────────────────────────
 
-// Auth
+// Auth (rate-limited)
 app.post('/api/auth', (req, res) => {
+  const ip = req.ip || req.connection.remoteAddress || 'unknown';
+  if (!checkRateLimit(ip)) {
+    botWarn(`🚫 Rate limit hit on /api/auth from ${ip}`);
+    return res.status(429).json({ success: false, message: 'Too many login attempts. Try again in 15 minutes.' });
+  }
   const { password } = req.body;
   if (password === ADMIN_PASSWORD) {
+    clearRateLimit(ip); // Reset on successful login
     const token = Buffer.from(ADMIN_PASSWORD).toString('base64');
     res.json({ success: true, token });
   } else {
@@ -1336,7 +1377,7 @@ app.get('/api/logs', requireAuth, (req, res) => {
 
 // ─── Socket.io ───────────────────────────────────────────────
 io.on('connection', (socket) => {
-  botLog(`🔌 Admin client connected`);
+  botLog(`🔌 Admin client connected (authenticated)`);
   // Send recent logs on connect
   socket.emit('initLogs', logs.slice(-100));
   socket.on('disconnect', () => {
@@ -1344,10 +1385,22 @@ io.on('connection', (socket) => {
   });
 });
 
+// ─── 404 Handler ─────────────────────────────────────────────
+app.use((req, res) => {
+  if (req.path.startsWith('/api/')) {
+    return res.status(404).json({ error: `Route not found: ${req.method} ${req.path}` });
+  }
+  // For non-API routes, serve the SPA index
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
 // ─── Start ───────────────────────────────────────────────────
 server.listen(PORT, () => {
   botOk(`🚀 Admin panel running at http://localhost:${PORT}`);
-  botLog(`🔐 Admin password: ${ADMIN_PASSWORD}`);
+  if (ADMIN_PASSWORD === 'admin123') {
+    botWarn(`⚠️  WARNING: Admin password is still the default "admin123" — change it in .env!`);
+  }
+  botLog(`🔐 Admin password is set`);
   botLog(`📋 ${users.length} account(s) loaded`);
   botLog(`🌍 ${COUNTRIES.length} countries supported`);
 });
