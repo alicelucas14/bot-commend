@@ -1123,13 +1123,16 @@ function renderPlatformManagerRow(p) {
       </div>`;
   }
 
+  const cookieBadge = p.hasCookies ? `<span class="badge badge-purple" style="font-size: 0.75rem;">🍪 Cookies Active</span>` : '';
+
   const fields = (p.credentialFields || []).map(f => `
     <div class="form-group">
       <label class="form-label">${f.label}</label>
       <input id="cred-${p.id}-${f.key}"
              type="${f.type}"
              class="custom-input"
-             placeholder="${f.placeholder}"
+             placeholder="${f.hasValue && f.type === 'password' ? '•••••••• (Saved)' : f.placeholder}"
+             value="${f.value ? f.value.replace(/"/g, '&quot;') : ''}"
              autocomplete="${f.type === 'password' ? 'new-password' : 'off'}" />
     </div>`).join('');
 
@@ -1139,11 +1142,13 @@ function renderPlatformManagerRow(p) {
         <span class="pm-row-icon">${p.icon}</span>
         <span class="pm-row-name">${p.name}</span>
         ${statusBadge}
+        ${cookieBadge}
         <span class="pm-row-posts">${p.postsThisSession} posts</span>
         <button class="btn btn-ghost btn-sm pm-toggle-btn" data-id="${p.id}">⚙️ Configure</button>
       </div>
       <div class="pm-form hidden" id="pm-form-${p.id}">
         <div class="pm-form-inner">
+          ${p.hasCookies ? `<div style="font-size: 0.82rem; color: #a78bfa; margin-bottom: 10px;">🍪 Session cookies active (tokens/tiktok_cookies.json) — login captcha bypassed automatically.</div>` : ''}
           ${fields}
           <div class="pm-form-actions">
             <button class="btn btn-primary btn-sm" onclick="savePlatformCredentials('${p.id}')">

@@ -322,8 +322,12 @@ async function getTrending(regionCode = 'US', maxResults = 20) {
 
 async function testConnection() {
   if (!isPuppeteerAvailable()) return { ok: false, message: 'Puppeteer not installed — run npm install puppeteer puppeteer-extra puppeteer-extra-plugin-stealth' };
+  const hasCookies = !!loadSavedCookies();
+  if (hasCookies) {
+    return { ok: true, message: 'Connected via session cookies (tokens/tiktok_cookies.json)' };
+  }
   const { username, password } = getTikTokCredentials();
-  if (!username || !password) return { ok: false, message: 'TIKTOK_USERNAME / TIKTOK_PASSWORD not set in .env' };
+  if (!username || !password) return { ok: false, message: 'No session cookies and TIKTOK_USERNAME / TIKTOK_PASSWORD not set' };
   return { ok: true, message: `Configured as @${username} — will log in on first post` };
 }
 

@@ -386,7 +386,29 @@ function randomizeStyle(reply) {
 }
 
 // ─── AI Comment Generation (country-aware) ───────────────────
-let keywords = ['GOLD888', 'POLASLOT88', 'WINGS365'];
+const KEYWORDS_FILE = path.join(__dirname, 'keywords.json');
+
+function loadKeywords() {
+  try {
+    if (fs.existsSync(KEYWORDS_FILE)) {
+      const data = JSON.parse(fs.readFileSync(KEYWORDS_FILE, 'utf8'));
+      if (Array.isArray(data) && data.length > 0) return data;
+    }
+  } catch (e) {
+    console.warn('⚠️ Error reading keywords.json:', e.message);
+  }
+  return ['TEENPATTISTARS', 'TPS', 'S777'];
+}
+
+function saveKeywords(kwList) {
+  try {
+    fs.writeFileSync(KEYWORDS_FILE, JSON.stringify(kwList, null, 2), 'utf8');
+  } catch (e) {
+    console.error('⚠️ Error writing keywords.json:', e.message);
+  }
+}
+
+let keywords = loadKeywords();
 
 async function generateReply(input, sourceType, language = 'Indonesian', useKeyword = true) {
   try {
@@ -1205,6 +1227,9 @@ app.get('/api/trending', requireAuth, async (req, res) => {
 
 // Platform registry
 app.get('/api/platforms', requireAuth, (req, res) => {
+  const tiktokCookieFile = path.join(__dirname, 'tokens', 'tiktok_cookies.json');
+  const hasTikTokCookies = fs.existsSync(tiktokCookieFile);
+
   const list = Object.values(PLATFORM_REGISTRY).map(p => ({
     id:               p.id,
     name:             p.name,
@@ -1214,7 +1239,12 @@ app.get('/api/platforms', requireAuth, (req, res) => {
     configured:       p.isConfigured(),
     supportsTrending: p.supportsTrending || false,
     postsThisSession: stats.platformStats[p.id] || 0,
-    credentialFields: p.credentialFields || [],
+    hasCookies:       p.id === 'tiktok' ? hasTikTokCookies : false,
+    credentialFields: (p.credentialFields || []).map(f => ({
+      ...f,
+      value:    f.type === 'password' ? '' : (process.env[f.key] || ''),
+      hasValue: !!process.env[f.key],
+    })),
   }));
   res.json(list);
 });
@@ -1292,7 +1322,8 @@ app.post('/api/keywords', requireAuth, (req, res) => {
     return res.status(400).json({ error: 'keywords must be a non-empty array' });
   }
   keywords = kw.map(k => k.trim().toUpperCase()).filter(Boolean);
-  botOk(`✏️ Keywords updated: ${keywords.join(', ')}`);
+  saveKeywords(keywords);
+  botOk(`✏️ Keywords updated & saved: ${keywords.join(', ')}`);
   res.json({ success: true, keywords });
 });
 
