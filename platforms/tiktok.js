@@ -203,18 +203,44 @@ async function postComment(videoUrl, comment) {
     await page.goto(videoUrl, { waitUntil: 'networkidle2', timeout: 30000 });
     await delay(3000);
 
+    // Dismiss any cookie/guest banner if present
+    try {
+      await page.evaluate(() => {
+        const btns = Array.from(document.querySelectorAll('button'));
+        const allowBtn = btns.find(b => /allow all|accept|continue as guest/i.test(b.innerText || b.textContent || ''));
+        if (allowBtn) allowBtn.click();
+      });
+      await delay(1000);
+    } catch {}
+
+    // Open comments panel if not already open
+    try {
+      const opened = await page.evaluate(() => {
+        if (document.querySelector('[data-e2e="comment-input"], [contenteditable="true"]')) return false;
+        const icon = document.querySelector('[data-e2e="comment-icon"]');
+        if (icon) { icon.click(); return true; }
+        const btns = Array.from(document.querySelectorAll('button'));
+        const tab = btns.find(b => (b.innerText || b.textContent || '').trim() === 'Comments');
+        if (tab) { tab.click(); return true; }
+        return false;
+      });
+      if (opened) await delay(3000);
+    } catch {}
+
     // Find comment input
     const inputSelectors = [
-      'div[data-e2e="comment-input"]',
-      '[placeholder*="comment" i]',
+      '[contenteditable="true"].public-DraftEditor-content',
       '[contenteditable="true"]',
+      'div[data-e2e="comment-input"]',
+      'div[data-e2e="comment-text"]',
+      '[placeholder*="comment" i]',
       'div.DraftEditor-root',
     ];
 
     let commentInput = null;
     for (const sel of inputSelectors) {
       try {
-        commentInput = await page.waitForSelector(sel, { timeout: 5000 });
+        commentInput = await page.waitForSelector(sel, { timeout: 4000 });
         if (commentInput) break;
       } catch {}
     }
@@ -224,10 +250,14 @@ async function postComment(videoUrl, comment) {
     await commentInput.click();
     await delay(600);
     await page.keyboard.type(comment, { delay: 40 });
-    await delay(600);
+    await delay(800);
 
     // Submit
-    const submitSelectors = ['div[data-e2e="comment-post"]', 'button[data-e2e="comment-post"]', '[data-e2e="comment-submit"]'];
+    const submitSelectors = [
+      'button[data-e2e="comment-post"]',
+      'div[data-e2e="comment-post"]',
+      '[data-e2e="comment-submit"]',
+    ];
     let submitted = false;
     for (const sel of submitSelectors) {
       const btn = await page.$(sel);

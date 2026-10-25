@@ -48,25 +48,20 @@ const { getBrowser, newPageWithProxy } = require('./platforms/browser');
     });
     await new Promise(r => setTimeout(r, 2000));
 
-    // 2. Click the Comments tab (or comment icon) to show the comments section
-    console.log('Switching to Comments view...');
-    await page.evaluate(() => {
-      // Priority A: Click element with text "Comments"
-      const allEls = Array.from(document.querySelectorAll('*'));
-      for (const el of allEls) {
-        if ((el.innerText || '').trim() === 'Comments' && el.children.length === 0) {
-          const rect = el.getBoundingClientRect();
-          if (rect.x > 600 && rect.y < 300) {
-            el.click();
-            console.log('Clicked Comments tab!');
-            return;
-          }
-        }
-      }
-      // Priority B: Click comment icon on video player
+    // 2. Click comment icon on video player
+    console.log('Clicking comment icon on video player...');
+    const clicked = await page.evaluate(() => {
       const icon = document.querySelector('[data-e2e="comment-icon"]');
-      if (icon) icon.click();
+      if (icon) {
+        icon.click();
+        return true;
+      }
+      return false;
     });
+    console.log('Clicked comment icon:', clicked);
+
+
+
 
     await new Promise(r => setTimeout(r, 4000));
 
