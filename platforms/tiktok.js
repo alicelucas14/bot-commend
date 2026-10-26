@@ -200,23 +200,29 @@ async function postComment(videoUrl, comment) {
     if (!loggedIn) throw new Error('TikTok login failed — check TIKTOK_USERNAME/PASSWORD');
 
     // Navigate to video
-    await page.goto(videoUrl, { waitUntil: 'networkidle2', timeout: 30000 });
-    await delay(3000);
+    await page.goto(videoUrl, { waitUntil: 'networkidle2', timeout: 35000 }).catch(() => {});
+    await delay(6000);
 
-    // Dismiss any cookie/guest banner if present
+    // Dismiss any cookie/guest banner if present (including shadowRoot banners)
     try {
       await page.evaluate(() => {
+        const host = document.querySelector('tiktok-cookie-banner');
+        if (host && host.shadowRoot) {
+          const btns = Array.from(host.shadowRoot.querySelectorAll('button'));
+          const allowBtn = btns.find(b => /allow all|accept/i.test(b.innerText || ''));
+          if (allowBtn) allowBtn.click();
+          else if (btns.length > 0) btns[btns.length - 1].click();
+        }
         const btns = Array.from(document.querySelectorAll('button'));
         const allowBtn = btns.find(b => /allow all|accept|continue as guest/i.test(b.innerText || b.textContent || ''));
         if (allowBtn) allowBtn.click();
       });
-      await delay(1000);
+      await delay(2000);
     } catch {}
 
-    // Open comments panel if not already open
+    // Open comments panel on video player
     try {
-      const opened = await page.evaluate(() => {
-        if (document.querySelector('[data-e2e="comment-input"], [contenteditable="true"]')) return false;
+      await page.evaluate(() => {
         const icon = document.querySelector('[data-e2e="comment-icon"]');
         if (icon) { icon.click(); return true; }
         const btns = Array.from(document.querySelectorAll('button'));
@@ -224,7 +230,7 @@ async function postComment(videoUrl, comment) {
         if (tab) { tab.click(); return true; }
         return false;
       });
-      if (opened) await delay(3000);
+      await delay(3500);
     } catch {}
 
     // Find comment input
@@ -249,23 +255,37 @@ async function postComment(videoUrl, comment) {
 
     await commentInput.click();
     await delay(600);
-    await page.keyboard.type(comment, { delay: 40 });
-    await delay(800);
+
+    // Insert text using execCommand so Draft.js properly registers Unicode/Hindi characters
+    await page.evaluate((text) => {
+      const el = document.querySelector('[contenteditable="true"].public-DraftEditor-content, [contenteditable="true"]');
+      if (el) {
+        el.focus();
+        document.execCommand('selectAll', false, null);
+        document.execCommand('insertText', false, text);
+      }
+    }, comment);
+    await delay(1000);
+
+    // Fallback: type space and backspace via keyboard to trigger Draft.js state update
+    try {
+      await page.keyboard.type(' ');
+      await delay(200);
+      await page.keyboard.press('Backspace');
+      await delay(800);
+    } catch {}
 
     // Submit
-    const submitSelectors = [
-      'button[data-e2e="comment-post"]',
-      'div[data-e2e="comment-post"]',
-      '[data-e2e="comment-submit"]',
-    ];
-    let submitted = false;
-    for (const sel of submitSelectors) {
-      const btn = await page.$(sel);
-      if (btn) { await btn.click(); submitted = true; break; }
+    const submitBtn = await page.waitForSelector('button[data-e2e="comment-post"]:not([disabled]), [data-e2e="comment-post"]:not([disabled])', { timeout: 3000 }).catch(() => null);
+    if (submitBtn) {
+      await submitBtn.click();
+    } else {
+      const anyBtn = await page.$('button[data-e2e="comment-post"], [data-e2e="comment-post"]');
+      if (anyBtn) await anyBtn.click();
+      await page.keyboard.press('Enter');
     }
-    if (!submitted) await page.keyboard.press('Enter');
 
-    await delay(2000);
+    await delay(3000);
     return { success: true, platform: 'tiktok' };
   } finally {
     await page.close();
@@ -312,9 +332,16 @@ async function getTrending(regionCode = 'US', maxResults = 20) {
 
     await delay(3500);
 
-    // Dismiss any guest or cookie banners if present
+    // Dismiss any guest or cookie banners if present (including shadowRoot)
     try {
       await page.evaluate(() => {
+        const host = document.querySelector('tiktok-cookie-banner');
+        if (host && host.shadowRoot) {
+          const btns = Array.from(host.shadowRoot.querySelectorAll('button'));
+          const allowBtn = btns.find(b => /allow all|accept/i.test(b.innerText || ''));
+          if (allowBtn) allowBtn.click();
+          else if (btns.length > 0) btns[btns.length - 1].click();
+        }
         const buttons = Array.from(document.querySelectorAll('button'));
         for (const b of buttons) {
           if (/continue as guest|accept|decline|close|skip/i.test(b.innerText || '')) {

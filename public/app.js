@@ -157,7 +157,9 @@ function showLogin() {
 
 // ─── Socket.io ───────────────────────────────────────────────
 function initSocket() {
-  socket = io();
+  socket = io({
+    query: { token: adminToken || '' },
+  });
 
   socket.on('connect', () => {
     setStatus(true);
