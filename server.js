@@ -183,7 +183,7 @@ function updateEnvFile(updates, singleVal) {
 
   for (const [key, value] of Object.entries(updates)) {
     if (value === undefined || value === null) continue; 
-    const regex = new RegExp(`^${key}=.*`, 'm');
+    const regex = new RegExp(`^${key}=.*`, 'gm');
     const line  = `${key}=${value}`;
     if (regex.test(content)) {
       content = content.replace(regex, () => line);
@@ -775,7 +775,7 @@ app.get('/api/status', requireAuth, (req, res) => {
 app.get('/api/config', requireAuth, (req, res) => {
   res.json({
     postDelay:             postDelay,
-    proxyEnabled:          process.env.PROXYLAB_ENABLED      === 'true',
+    proxyEnabled:          PROXYLAB_ENABLED,
     proxyHost:             process.env.PROXYLAB_HOST          || '',
     proxyPort:             process.env.PROXYLAB_PORT          || '',
     proxyUsername:         process.env.PROXYLAB_USERNAME      || '',
