@@ -330,7 +330,7 @@ async function postComment(videoUrl, comment) {
     }
 
     // Wait for comment to submit and render
-    await delay(4000);
+    await delay(5000);
 
     // Always take a proof screenshot of the post attempt
     try {
@@ -340,7 +340,16 @@ async function postComment(videoUrl, comment) {
     } catch {}
 
     const postStatus = await page.evaluate((originalComment) => {
-      // 1. Check for TikTok toast / error notifications
+      // 1. Check for TikTok captcha / puzzle challenge
+      const hasCaptcha = Array.from(document.querySelectorAll('*')).some(el => {
+        const text = (el.innerText || el.textContent || '').toLowerCase();
+        return text.includes('drag the slider') || text.includes('fit the puzzle') || text.includes('security check') || text.includes('verify to continue');
+      });
+      if (hasCaptcha) {
+        return { error: 'Security puzzle captcha triggered ("Drag the slider to fit the puzzle"). Datacenter IP blocked.' };
+      }
+
+      // 2. Check for TikTok toast / error notifications
       const toasts = Array.from(document.querySelectorAll('[role="alert"], div[class*="toast"], div[class*="Toast"], [class*="modal"]'));
       for (const t of toasts) {
         const text = (t.innerText || t.textContent || '').trim();
@@ -349,10 +358,15 @@ async function postComment(videoUrl, comment) {
         }
       }
 
-      // 2. Check if editor was cleared
+      // 3. Check if editor was cleared
       const editor = document.querySelector('[contenteditable="true"].public-DraftEditor-content, [contenteditable="true"]');
       const remainingText = editor ? (editor.innerText || '').trim() : '';
-      return { remainingText };
+
+      // 4. Check if the newly posted comment appears in the comments list
+      const comments = Array.from(document.querySelectorAll('[data-e2e="comment-level-1"], [class*="CommentItem"], [class*="comment-text"]'));
+      const foundInList = comments.some(c => (c.innerText || '').includes(originalComment.slice(0, 15)));
+
+      return { remainingText, foundInList };
     }, comment);
 
     if (postStatus.error) {
