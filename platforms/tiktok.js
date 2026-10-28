@@ -194,6 +194,7 @@ async function postComment(videoUrl, comment) {
   const page    = await newPageWithProxy(browser);
 
   try {
+    await page.setViewport({ width: 1440, height: 900 }).catch(() => {});
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
     const loggedIn = await ensureLogin(page);
@@ -220,36 +221,57 @@ async function postComment(videoUrl, comment) {
       await delay(2000);
     } catch {}
 
-    // Open comments panel on video player (only if not already visible)
+    // Switch to Comments tab on video player (if "You may like" or anything else is active)
     try {
-      await page.evaluate(() => {
-        const existingInput = document.querySelector('[contenteditable="true"], [data-e2e="comment-input"], div.DraftEditor-root');
-        if (existingInput) return false;
-
-        // 1. Try clicking the Comments tab on the right panel (Comments / You may like)
-        const candidates = Array.from(document.querySelectorAll('[role="tab"], div, span, p, button, a'));
-        const commentTab = candidates.find(el => {
-          const txt = (el.innerText || el.textContent || '').trim();
-          return /^comments?(\s*\(\d+.*\))?$/i.test(txt);
+      const clickCoords = await page.evaluate(() => {
+        // Collect all DOM elements whose exact text is "Comments" or "Comment"
+        const all = Array.from(document.querySelectorAll('*'));
+        const matches = all.filter(el => {
+          const text = (el.innerText || el.textContent || '').trim();
+          if (!/^comments?$/i.test(text)) return false;
+          // Must be the innermost element (no child with identical text)
+          const hasChildMatch = Array.from(el.children).some(c => /^comments?$/i.test((c.innerText || c.textContent || '').trim()));
+          return !hasChildMatch;
         });
-        if (commentTab) {
-          commentTab.scrollIntoView?.();
-          commentTab.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-          commentTab.click();
-          return true;
-        }
 
-        // 2. Try clicking comment action button/icon next to the video
-        const icon = document.querySelector('[data-e2e*="comment-icon"], [data-e2e="comment-icon"], [aria-label*="comment" i]');
-        if (icon) {
-          icon.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-          icon.click();
-          return true;
+        // Pick one that is visible and in the right panel (x > 400)
+        for (const el of matches) {
+          const r = el.getBoundingClientRect();
+          if (r.width > 0 && r.height > 0 && r.left > 400 && r.top < 600) {
+            return { x: r.left + r.width / 2, y: r.top + r.height / 2, text: el.innerText };
+          }
         }
-        return false;
+        return null;
       });
-      await delay(3500);
-    } catch {}
+
+      if (clickCoords) {
+        console.log(`🎯 Clicking Comments tab at (${Math.round(clickCoords.x)}, ${Math.round(clickCoords.y)})`);
+        await page.mouse.click(clickCoords.x, clickCoords.y);
+        await delay(3500);
+      } else {
+        // Fallback: Click the comment bubble icon next to the video
+        const iconCoords = await page.evaluate(() => {
+          const els = Array.from(document.querySelectorAll('[data-e2e*="comment"], [aria-label*="comment" i], span, button, div'));
+          for (const el of els) {
+            const attr = ((el.getAttribute('data-e2e') || '') + ' ' + (el.getAttribute('aria-label') || '') + ' ' + (el.innerText || '')).toLowerCase();
+            if (attr.includes('comment') || attr.includes('636')) {
+              const r = el.getBoundingClientRect();
+              if (r.width > 10 && r.height > 10 && r.width < 120 && r.height < 120 && r.left > 300) {
+                return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+              }
+            }
+          }
+          return null;
+        });
+        if (iconCoords) {
+          console.log(`🎯 Clicking video comment icon at (${Math.round(iconCoords.x)}, ${Math.round(iconCoords.y)})`);
+          await page.mouse.click(iconCoords.x, iconCoords.y);
+          await delay(3500);
+        }
+      }
+    } catch (e) {
+      console.warn('⚠️ Error switching to comments:', e.message);
+    }
 
     // Check if video is unavailable or comments are turned off
     const videoStatus = await page.evaluate(() => {
@@ -282,29 +304,44 @@ async function postComment(videoUrl, comment) {
       '[placeholder*="comment" i]',
       'div[class*="CommentInput"]',
       'div[class*="DraftEditor"]',
+      'textarea',
     ];
 
     let commentInput = null;
     for (const sel of inputSelectors) {
       try {
-        commentInput = await page.waitForSelector(sel, { timeout: 4000 });
+        const els = await page.$$(sel);
+        for (const el of els) {
+          const box = await el.boundingBox();
+          if (box && box.width > 40 && box.height > 15) {
+            commentInput = el;
+            break;
+          }
+        }
         if (commentInput) break;
       } catch {}
     }
 
-    // Fallback: If not found, force click any element with "Comments" and retry
+    // If still not found, search for "Add comment..." placeholder text
     if (!commentInput) {
-      await page.evaluate(() => {
-        const candidates = Array.from(document.querySelectorAll('[role="tab"], div, span, p, button, a'));
-        const tab = candidates.find(el => /^comments?(\s*\(\d+.*\))?$/i.test((el.innerText || el.textContent || '').trim()));
-        if (tab) tab.click();
+      const phCoords = await page.evaluate(() => {
+        const els = Array.from(document.querySelectorAll('*'));
+        for (const el of els) {
+          const t = (el.innerText || el.textContent || el.getAttribute('placeholder') || '').trim().toLowerCase();
+          if (t.includes('add comment') || t === 'comment...') {
+            const r = el.getBoundingClientRect();
+            if (r.width > 0 && r.height > 0 && r.left > 400) {
+              return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+            }
+          }
+        }
+        return null;
       });
-      await delay(3000);
-      for (const sel of inputSelectors) {
-        try {
-          commentInput = await page.$(sel);
-          if (commentInput) break;
-        } catch {}
+      if (phCoords) {
+        console.log(`🎯 Clicking "Add comment" placeholder at (${Math.round(phCoords.x)}, ${Math.round(phCoords.y)})`);
+        await page.mouse.click(phCoords.x, phCoords.y);
+        await delay(1500);
+        commentInput = await page.$('[contenteditable="true"], div.DraftEditor-root');
       }
     }
 
