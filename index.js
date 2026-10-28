@@ -29,7 +29,7 @@ function generateProxyLabProxy(username) {
         console.warn('⚠️ ProxyLab not configured. Requests will be made without proxy.');
         return null;
     }
-    
+
     // Basic ProxyLab proxy format
     return `http://${PROXYLAB_USERNAME}:${PROXYLAB_PASSWORD}@${PROXYLAB_HOST}:${PROXYLAB_PORT}`;
 }
@@ -40,12 +40,12 @@ async function getCurrentIP(agent, username) {
         const config = {
             timeout: 8000,
         };
-        
+
         if (agent) {
             config.httpsAgent = agent;
             config.proxy = false;
         }
-        
+
         const res = await axios.get('https://api.ipify.org?format=json', config);
         console.log(`🌐 ${username} is using IP: ${res.data.ip}`);
     } catch (error) {
@@ -73,7 +73,7 @@ const users = tokenFiles.map(file => {
 
     const proxyUrl = generateProxyLabProxy(file.replace('.json', ''));
     let agent = null;
-    
+
     if (proxyUrl) {
         agent = new HttpsProxyAgent(proxyUrl);
         getCurrentIP(agent, file.replace('.json', ''));
@@ -183,7 +183,7 @@ function randomFont(char) {
 
 function obfuscateKeyword(text, keyword) {
     const zeroWidth = '​';
-    const randomChars = [ '*', '!',  ];
+    const randomChars = ['*', '!',];
     const chars = keyword.split('');
     const obfuscated = chars
         .map((char, i) => {

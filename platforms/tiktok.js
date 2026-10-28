@@ -226,11 +226,26 @@ async function postComment(videoUrl, comment) {
         const existingInput = document.querySelector('[contenteditable="true"], [data-e2e="comment-input"], div.DraftEditor-root');
         if (existingInput) return false;
 
-        const icon = document.querySelector('[data-e2e="comment-icon"]');
-        if (icon) { icon.click(); return true; }
-        const btns = Array.from(document.querySelectorAll('button'));
-        const tab = btns.find(b => (b.innerText || b.textContent || '').trim() === 'Comments');
-        if (tab) { tab.click(); return true; }
+        // 1. Try clicking the Comments tab on the right panel (Comments / You may like)
+        const candidates = Array.from(document.querySelectorAll('[role="tab"], div, span, p, button, a'));
+        const commentTab = candidates.find(el => {
+          const txt = (el.innerText || el.textContent || '').trim();
+          return /^comments?(\s*\(\d+.*\))?$/i.test(txt);
+        });
+        if (commentTab) {
+          commentTab.scrollIntoView?.();
+          commentTab.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+          commentTab.click();
+          return true;
+        }
+
+        // 2. Try clicking comment action button/icon next to the video
+        const icon = document.querySelector('[data-e2e*="comment-icon"], [data-e2e="comment-icon"], [aria-label*="comment" i]');
+        if (icon) {
+          icon.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+          icon.click();
+          return true;
+        }
         return false;
       });
       await delay(3500);
@@ -265,14 +280,32 @@ async function postComment(videoUrl, comment) {
       'div.DraftEditor-root [contenteditable="true"]',
       'div.DraftEditor-root',
       '[placeholder*="comment" i]',
+      'div[class*="CommentInput"]',
+      'div[class*="DraftEditor"]',
     ];
 
     let commentInput = null;
     for (const sel of inputSelectors) {
       try {
-        commentInput = await page.waitForSelector(sel, { timeout: 6000 });
+        commentInput = await page.waitForSelector(sel, { timeout: 4000 });
         if (commentInput) break;
       } catch {}
+    }
+
+    // Fallback: If not found, force click any element with "Comments" and retry
+    if (!commentInput) {
+      await page.evaluate(() => {
+        const candidates = Array.from(document.querySelectorAll('[role="tab"], div, span, p, button, a'));
+        const tab = candidates.find(el => /^comments?(\s*\(\d+.*\))?$/i.test((el.innerText || el.textContent || '').trim()));
+        if (tab) tab.click();
+      });
+      await delay(3000);
+      for (const sel of inputSelectors) {
+        try {
+          commentInput = await page.$(sel);
+          if (commentInput) break;
+        } catch {}
+      }
     }
 
     if (!commentInput) throw new Error('Comment input not found on TikTok video page');
