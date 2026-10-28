@@ -708,6 +708,7 @@ function setupSettingsTab() {
   // Save proxy button
   const saveProxy = document.getElementById('saveProxyBtn');
   if (saveProxy) saveProxy.addEventListener('click', saveProxyConfig);
+  document.getElementById('testProxyBtn')?.addEventListener('click', testProxyConfig);
 
   // Telegram toggle
   const tgToggle = document.getElementById('telegramNotifyToggle');
@@ -978,6 +979,42 @@ async function saveProxyConfig() {
   } finally {
     btn.disabled = false;
     btn.textContent = '💾 Save Proxy Settings';
+  }
+}
+
+async function testProxyConfig() {
+  const btn = document.getElementById('testProxyBtn');
+  const resSpan = document.getElementById('proxyTestResult');
+  btn.disabled = true;
+  btn.textContent = '⏳ Testing...';
+  if (resSpan) resSpan.textContent = '';
+
+  try {
+    const res = await api('/api/proxy/test', 'POST', {
+      host:     document.getElementById('proxyHostInput')?.value.trim()     || '',
+      port:     document.getElementById('proxyPortInput')?.value.trim()     || '',
+      username: document.getElementById('proxyUsernameInput')?.value.trim() || '',
+      password: document.getElementById('proxyPasswordInput')?.value.trim() || '',
+    });
+    const data = await res.json();
+    if (data.ok) {
+      toast(`✅ Proxy connected! IP: ${data.ip}`, 'success');
+      if (resSpan) {
+        resSpan.style.color = '#10b981';
+        resSpan.textContent = `✅ Connected! IP: ${data.ip}`;
+      }
+    } else {
+      toast(`❌ Proxy failed: ${data.message}`, 'error');
+      if (resSpan) {
+        resSpan.style.color = '#ef4444';
+        resSpan.textContent = `❌ ${data.message}`;
+      }
+    }
+  } catch (e) {
+    toast(`Network error: ${e.message}`, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🔌 Test Proxy Connection';
   }
 }
 

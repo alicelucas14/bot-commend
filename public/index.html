@@ -547,7 +547,11 @@
                     <input type="password" id="proxyPasswordInput" class="custom-input" placeholder="••••••••" />
                   </div>
                 </div>
-                <button class="btn btn-primary" id="saveProxyBtn" style="align-self:flex-start;">💾 Save Proxy Settings</button>
+                <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                  <button class="btn btn-primary" id="saveProxyBtn">💾 Save Proxy Settings</button>
+                  <button class="btn btn-ghost" id="testProxyBtn">🔌 Test Proxy Connection</button>
+                  <span id="proxyTestResult" style="font-size:0.85rem;margin-left:8px;"></span>
+                </div>
                 <p class="form-hint">Changes are saved to <code>.env</code> and applied immediately. Reconnect accounts after changing proxy.</p>
               </div>
             </div>

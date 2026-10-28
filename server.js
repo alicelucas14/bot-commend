@@ -206,11 +206,11 @@ let CLIENT_ID       = process.env.GOOGLE_CLIENT_ID;
 let CLIENT_SECRET   = process.env.GOOGLE_CLIENT_SECRET;
 let REDIRECT_URI    = process.env.GOOGLE_REDIRECT_URI;
 let YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY;
-const PROXYLAB_HOST   = process.env.PROXYLAB_HOST   || 'proxy.proxylab.io';
-const PROXYLAB_PORT   = process.env.PROXYLAB_PORT   || '8080';
-const PROXYLAB_USERNAME = process.env.PROXYLAB_USERNAME;
-const PROXYLAB_PASSWORD = process.env.PROXYLAB_PASSWORD;
-const PROXYLAB_ENABLED  = process.env.PROXYLAB_ENABLED === 'true';
+let PROXYLAB_HOST   = process.env.PROXYLAB_HOST   || 'proxy.proxylab.io';
+let PROXYLAB_PORT   = process.env.PROXYLAB_PORT   || '8080';
+let PROXYLAB_USERNAME = process.env.PROXYLAB_USERNAME;
+let PROXYLAB_PASSWORD = process.env.PROXYLAB_PASSWORD;
+let PROXYLAB_ENABLED  = process.env.PROXYLAB_ENABLED === 'true';
 
 let openai = openaiApiKey ? new OpenAI({ apiKey: openaiApiKey }) : null;
 
@@ -852,17 +852,85 @@ app.post('/api/config', requireAuth, (req, res) => {
     updateEnvFile('YOUTUBE_API_KEY', v);
   }
 
-  if (proxyEnabled !== undefined)          updateEnvFile('PROXYLAB_ENABLED',        proxyEnabled ? 'true' : 'false');
-  if (proxyHost     !== undefined)          updateEnvFile('PROXYLAB_HOST',            proxyHost);
-  if (proxyPort     !== undefined)          updateEnvFile('PROXYLAB_PORT',            String(proxyPort));
-  if (proxyUsername !== undefined)          updateEnvFile('PROXYLAB_USERNAME',        proxyUsername);
-  if (proxyPassword !== undefined)          updateEnvFile('PROXYLAB_PASSWORD',        proxyPassword);
+  if (proxyEnabled !== undefined) {
+    const val = proxyEnabled ? 'true' : 'false';
+    updateEnvFile('PROXYLAB_ENABLED', val);
+    process.env.PROXYLAB_ENABLED = val;
+    PROXYLAB_ENABLED = (val === 'true');
+  }
+  if (proxyHost     !== undefined) {
+    updateEnvFile('PROXYLAB_HOST', proxyHost);
+    process.env.PROXYLAB_HOST = proxyHost;
+    PROXYLAB_HOST = proxyHost;
+  }
+  if (proxyPort     !== undefined) {
+    updateEnvFile('PROXYLAB_PORT', String(proxyPort));
+    process.env.PROXYLAB_PORT = String(proxyPort);
+    PROXYLAB_PORT = String(proxyPort);
+  }
+  if (proxyUsername !== undefined) {
+    updateEnvFile('PROXYLAB_USERNAME', proxyUsername);
+    process.env.PROXYLAB_USERNAME = proxyUsername;
+    PROXYLAB_USERNAME = proxyUsername;
+  }
+  if (proxyPassword !== undefined) {
+    updateEnvFile('PROXYLAB_PASSWORD', proxyPassword);
+    process.env.PROXYLAB_PASSWORD = proxyPassword;
+    PROXYLAB_PASSWORD = proxyPassword;
+  }
+  try {
+    const { closeBrowser } = require('./platforms/browser');
+    closeBrowser();
+  } catch {}
   if (telegramNotifyEnabled !== undefined)  updateEnvFile('TELEGRAM_NOTIFY_ENABLED',  telegramNotifyEnabled ? 'true' : 'false');
   if (telegramBotToken !== undefined)       updateEnvFile('TELEGRAM_BOT_TOKEN',       telegramBotToken);
   if (telegramGroupId  !== undefined)       updateEnvFile('TELEGRAM_GROUP_ID',        telegramGroupId);
 
   botOk('⚙️ Config updated via admin panel');
   res.json({ success: true });
+});
+
+// Proxy — test any proxy connection live from dashboard
+app.post('/api/proxy/test', requireAuth, async (req, res) => {
+  const host     = req.body.host     || process.env.PROXYLAB_HOST;
+  const port     = req.body.port     || process.env.PROXYLAB_PORT;
+  const username = req.body.username || process.env.PROXYLAB_USERNAME;
+  const password = req.body.password || process.env.PROXYLAB_PASSWORD;
+
+  if (!host || !port) {
+    return res.status(400).json({ ok: false, message: 'Host and port are required to test proxy' });
+  }
+
+  let proxyUrl;
+  if (username && password) {
+    proxyUrl = `http://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${host}:${port}`;
+  } else {
+    proxyUrl = `http://${host}:${port}`;
+  }
+
+  botLog(`🔌 Testing proxy connection to ${host}:${port}...`);
+
+  try {
+    const agent = new HttpsProxyAgent(proxyUrl);
+    const testRes = await axios.get('https://api.ipify.org?format=json', {
+      httpsAgent: agent,
+      proxy: false,
+      timeout: 9000,
+    });
+    botOk(`✅ Proxy test successful! Public IP: ${testRes.data.ip}`);
+    return res.json({ ok: true, ip: testRes.data.ip, message: `Connected! Proxy IP: ${testRes.data.ip}` });
+  } catch (err) {
+    let msg = err.message;
+    if (err.response?.status === 407 || msg.includes('407')) {
+      msg = 'Authentication failed (HTTP 407): Check username & password or IP whitelist.';
+    } else if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND') {
+      msg = `Cannot reach proxy server (${host}:${port}): Check host and port.`;
+    } else if (err.code === 'ETIMEDOUT') {
+      msg = 'Connection timed out: Proxy did not respond within 9 seconds.';
+    }
+    botWarn(`⚠️ Proxy test failed: ${msg}`);
+    return res.json({ ok: false, message: msg });
+  }
 });
 
 // Google / YouTube — test credentials
