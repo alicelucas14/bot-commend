@@ -52,8 +52,9 @@ async function getBrowser() {
     console.log(`🛡️ Puppeteer using proxy: ${process.env.PROXYLAB_HOST}:${port}`);
   }
 
+  const isHeadless = process.env.PUPPETEER_HEADLESS !== 'false';
   browser = await puppeteer.launch({
-    headless: true,
+    headless: isHeadless,
     args,
     ignoreDefaultArgs: ['--enable-automation'],
     defaultViewport: { width: 1280, height: 800 },

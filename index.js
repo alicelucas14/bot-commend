@@ -64,7 +64,7 @@ const openai = openaiApiKey ? new OpenAI({ apiKey: openaiApiKey }) : null;
 if (!fs.existsSync('tokens')) {
     fs.mkdirSync('tokens', { recursive: true });
 }
-const tokenFiles = fs.readdirSync('tokens').filter(file => file.endsWith('.json'));
+const tokenFiles = fs.readdirSync('tokens').filter(file => file.endsWith('.json') && !file.includes('tiktok_cookies'));
 
 const users = tokenFiles.map(file => {
     const credentials = JSON.parse(fs.readFileSync(`tokens/${file}`));

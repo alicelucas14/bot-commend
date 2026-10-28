@@ -233,6 +233,15 @@ async function postComment(videoUrl, comment) {
       await delay(3500);
     } catch {}
 
+    // Check if TikTok requires login instead of showing an active input
+    const isLoginRequired = await page.evaluate(() => {
+      const btns = Array.from(document.querySelectorAll('button, a, div'));
+      return btns.some(b => /log in to comment/i.test((b.innerText || b.textContent || '').trim()));
+    });
+    if (isLoginRequired) {
+      throw new Error('TikTok session expired or not logged in: "Log in to comment" detected. Please refresh tokens/tiktok_cookies.json');
+    }
+
     // Find comment input
     const inputSelectors = [
       '[contenteditable="true"].public-DraftEditor-content',
@@ -285,7 +294,33 @@ async function postComment(videoUrl, comment) {
       await page.keyboard.press('Enter');
     }
 
+    // Verify comment was submitted
     await delay(3000);
+
+    const postStatus = await page.evaluate((originalComment) => {
+      // 1. Check for TikTok toast / error notifications
+      const toasts = Array.from(document.querySelectorAll('[role="alert"], div[class*="toast"], div[class*="Toast"], [class*="modal"]'));
+      for (const t of toasts) {
+        const text = (t.innerText || t.textContent || '').trim();
+        if (text && /too fast|failed|error|blocked|prohibited|guidelines|log in|login/i.test(text)) {
+          return { error: text };
+        }
+      }
+
+      // 2. Check if editor was cleared
+      const editor = document.querySelector('[contenteditable="true"].public-DraftEditor-content, [contenteditable="true"]');
+      const remainingText = editor ? (editor.innerText || '').trim() : '';
+      return { remainingText };
+    }, comment);
+
+    if (postStatus.error) {
+      throw new Error(`TikTok rejected comment: ${postStatus.error}`);
+    }
+
+    if (postStatus.remainingText && postStatus.remainingText.length > 5 && postStatus.remainingText === comment.trim()) {
+      throw new Error('TikTok comment submission failed: text remained in editor after submit');
+    }
+
     return { success: true, platform: 'tiktok' };
   } finally {
     await page.close();

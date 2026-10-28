@@ -257,7 +257,7 @@ function loadUsers() {
       botWarn('⚠️ tokens/ directory not found. No accounts loaded.');
       return [];
     }
-    const tokenFiles = fs.readdirSync('tokens').filter(f => f.endsWith('.json'));
+    const tokenFiles = fs.readdirSync('tokens').filter(f => f.endsWith('.json') && !f.includes('tiktok_cookies'));
     if (tokenFiles.length === 0) {
       botWarn('⚠️ No token files found. Run get_token.js to add accounts.');
       return [];

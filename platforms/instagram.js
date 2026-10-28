@@ -2,7 +2,7 @@
 // platforms/instagram.js — Instagram via Puppeteer automation
 // ============================================================
 require('dotenv').config();
-const { getBrowser, isPuppeteerAvailable } = require('./browser');
+const { getBrowser, newPageWithProxy, isPuppeteerAvailable } = require('./browser');
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -73,7 +73,7 @@ async function postComment(postUrl, comment) {
   if (!isConfigured()) throw new Error('Instagram credentials not configured (INSTAGRAM_USERNAME / INSTAGRAM_PASSWORD)');
 
   const browser = await getBrowser();
-  const page    = await browser.newPage();
+  const page    = await newPageWithProxy(browser);
 
   try {
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
