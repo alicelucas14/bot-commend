@@ -238,7 +238,7 @@ async function generateReply(input, sourceType) {
             ? `Respond casually and naturally to this YouTube comment like a real viewer use always indonesian language. Make it one sentence, avoid generic phrases like "thanks" or "great video"[...]`
             : `Write a short, natural-sounding one-sentence YouTube comment about this video. Avoid generic praise. Make it feel like a real viewer reaction ,always in indonesian langauge, and in[...]`;
         const response = await openai.chat.completions.create({
-            model: 'gpt-4-turbo',
+            model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
             messages: [{ role: 'user', content: prompt }],
         });
         let reply = response.choices[0]?.message?.content?.trim();
