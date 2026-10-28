@@ -223,48 +223,70 @@ async function postComment(videoUrl, comment) {
 
     // Switch to Comments tab on video player (if "You may like" or anything else is active)
     try {
+      // First, dismiss any modal that might be open (like "Log in to TikTok" with "Skip" button)
+      await page.evaluate(() => {
+        const btns = Array.from(document.querySelectorAll('button, div, span, a'));
+        const skip = btns.find(b => (b.innerText || b.textContent || '').trim().toLowerCase() === 'skip');
+        if (skip) skip.click();
+      });
+      await delay(1000);
+
       const clickCoords = await page.evaluate(() => {
         // Collect all DOM elements whose exact text is "Comments" or "Comment"
         const all = Array.from(document.querySelectorAll('*'));
         const matches = all.filter(el => {
           const text = (el.innerText || el.textContent || '').trim();
-          if (!/^comments?$/i.test(text)) return false;
-          // Must be the innermost element (no child with identical text)
-          const hasChildMatch = Array.from(el.children).some(c => /^comments?$/i.test((c.innerText || c.textContent || '').trim()));
-          return !hasChildMatch;
+          return /^comments?$/i.test(text);
         });
 
-        // Pick one that is visible and in the right panel (x > 400)
+        // The real tab is the one right next to "You may like" in the right sidebar
         for (const el of matches) {
-          const r = el.getBoundingClientRect();
-          if (r.width > 0 && r.height > 0 && r.left > 400 && r.top < 600) {
-            return { x: r.left + r.width / 2, y: r.top + r.height / 2, text: el.innerText };
+          let p = el.parentElement;
+          let nearYouMayLike = false;
+          for (let i = 0; i < 5 && p; i++) {
+            if (/you may like/i.test(p.innerText || p.textContent || '')) {
+              nearYouMayLike = true;
+              break;
+            }
+            p = p.parentElement;
+          }
+          if (nearYouMayLike) {
+            const r = el.getBoundingClientRect();
+            // Real tab is at y > 200, NOT the top header at y = 96
+            if (r.width > 0 && r.height > 0 && r.top > 150) {
+              return { x: r.left + r.width / 2, y: r.top + r.height / 2, text: el.innerText };
+            }
           }
         }
         return null;
       });
 
       if (clickCoords) {
-        console.log(`🎯 Clicking Comments tab at (${Math.round(clickCoords.x)}, ${Math.round(clickCoords.y)})`);
+        console.log(`🎯 Clicking real Comments tab (next to "You may like") at (${Math.round(clickCoords.x)}, ${Math.round(clickCoords.y)})`);
         await page.mouse.click(clickCoords.x, clickCoords.y);
         await delay(3500);
       } else {
-        // Fallback: Click the comment bubble icon next to the video
+        // Fallback: Click the comment bubble icon on the video player action bar
         const iconCoords = await page.evaluate(() => {
-          const els = Array.from(document.querySelectorAll('[data-e2e*="comment"], [aria-label*="comment" i], span, button, div'));
-          for (const el of els) {
-            const attr = ((el.getAttribute('data-e2e') || '') + ' ' + (el.getAttribute('aria-label') || '') + ' ' + (el.innerText || '')).toLowerCase();
-            if (attr.includes('comment') || attr.includes('636')) {
-              const r = el.getBoundingClientRect();
-              if (r.width > 10 && r.height > 10 && r.width < 120 && r.height < 120 && r.left > 300) {
-                return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-              }
-            }
+          // Look for comment count element or comment icon on the video bar
+          const els = Array.from(document.querySelectorAll('*'));
+          const countEl = els.find(el => {
+            const t = (el.innerText || el.textContent || '').trim();
+            return (t === '636' || (t.includes('636') && t.length < 10)) && el.getBoundingClientRect().top > 300;
+          });
+          if (countEl) {
+            const r = countEl.getBoundingClientRect();
+            if (r.width > 0 && r.height > 0) return { x: r.left + r.width / 2, y: r.top - 15 };
+          }
+          const icon = document.querySelector('[data-e2e*="comment-icon"], [aria-label*="comment" i]');
+          if (icon) {
+            const r = icon.getBoundingClientRect();
+            if (r.width > 0 && r.height > 0 && r.top > 200) return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
           }
           return null;
         });
         if (iconCoords) {
-          console.log(`🎯 Clicking video comment icon at (${Math.round(iconCoords.x)}, ${Math.round(iconCoords.y)})`);
+          console.log(`🎯 Clicking video comment bubble at (${Math.round(iconCoords.x)}, ${Math.round(iconCoords.y)})`);
           await page.mouse.click(iconCoords.x, iconCoords.y);
           await delay(3500);
         }
