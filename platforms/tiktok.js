@@ -220,9 +220,12 @@ async function postComment(videoUrl, comment) {
       await delay(2000);
     } catch {}
 
-    // Open comments panel on video player
+    // Open comments panel on video player (only if not already visible)
     try {
       await page.evaluate(() => {
+        const existingInput = document.querySelector('[contenteditable="true"], [data-e2e="comment-input"], div.DraftEditor-root');
+        if (existingInput) return false;
+
         const icon = document.querySelector('[data-e2e="comment-icon"]');
         if (icon) { icon.click(); return true; }
         const btns = Array.from(document.querySelectorAll('button'));
@@ -232,6 +235,17 @@ async function postComment(videoUrl, comment) {
       });
       await delay(3500);
     } catch {}
+
+    // Check if video is unavailable or comments are turned off
+    const videoStatus = await page.evaluate(() => {
+      const text = document.body ? document.body.innerText || '' : '';
+      if (/comments are turned off|comments have been disabled/i.test(text)) return 'Comments are turned off for this video';
+      if (/video currently unavailable|video is private/i.test(text)) return 'Video is unavailable or private';
+      return null;
+    });
+    if (videoStatus) {
+      throw new Error(`TikTok: ${videoStatus}`);
+    }
 
     // Check if TikTok requires login instead of showing an active input
     const isLoginRequired = await page.evaluate(() => {
@@ -248,14 +262,15 @@ async function postComment(videoUrl, comment) {
       '[contenteditable="true"]',
       'div[data-e2e="comment-input"]',
       'div[data-e2e="comment-text"]',
-      '[placeholder*="comment" i]',
+      'div.DraftEditor-root [contenteditable="true"]',
       'div.DraftEditor-root',
+      '[placeholder*="comment" i]',
     ];
 
     let commentInput = null;
     for (const sel of inputSelectors) {
       try {
-        commentInput = await page.waitForSelector(sel, { timeout: 4000 });
+        commentInput = await page.waitForSelector(sel, { timeout: 6000 });
         if (commentInput) break;
       } catch {}
     }
@@ -322,6 +337,13 @@ async function postComment(videoUrl, comment) {
     }
 
     return { success: true, platform: 'tiktok' };
+  } catch (err) {
+    try {
+      const errPath = path.join(__dirname, '..', 'public', 'tiktok_last_error.png');
+      await page.screenshot({ path: errPath });
+      console.warn(`📸 Saved debug screenshot to public/tiktok_last_error.png (URL: ${page.url()})`);
+    } catch {}
+    throw err;
   } finally {
     await page.close();
   }
