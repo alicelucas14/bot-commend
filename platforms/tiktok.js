@@ -287,11 +287,13 @@ async function postComment(videoUrl, comment) {
         el.focus();
         document.execCommand('selectAll', false, null);
         document.execCommand('insertText', false, text);
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
       }
     }, comment);
     await delay(1000);
 
-    // Fallback: type space and backspace via keyboard to trigger Draft.js state update
+    // Trigger keyboard state update for Draft.js
     try {
       await page.keyboard.type(' ');
       await delay(200);
@@ -299,18 +301,43 @@ async function postComment(videoUrl, comment) {
       await delay(800);
     } catch {}
 
-    // Submit
-    const submitBtn = await page.waitForSelector('button[data-e2e="comment-post"]:not([disabled]), [data-e2e="comment-post"]:not([disabled])', { timeout: 3000 }).catch(() => null);
+    // Check if Post button is enabled
+    let submitBtn = await page.waitForSelector('button[data-e2e="comment-post"]:not([disabled]), [data-e2e="comment-post"]:not([disabled])', { timeout: 4000 }).catch(() => null);
+
+    // If still disabled, force an input event on the editor
+    if (!submitBtn) {
+      await page.evaluate(() => {
+        const el = document.querySelector('[contenteditable="true"].public-DraftEditor-content, [contenteditable="true"]');
+        if (el) {
+          el.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, inputType: 'insertText' }));
+          el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
+        }
+      });
+      await delay(1000);
+      submitBtn = await page.$('button[data-e2e="comment-post"]:not([disabled]), [data-e2e="comment-post"]:not([disabled])');
+    }
+
     if (submitBtn) {
       await submitBtn.click();
     } else {
+      // Last resort click on any comment-post element
       const anyBtn = await page.$('button[data-e2e="comment-post"], [data-e2e="comment-post"]');
-      if (anyBtn) await anyBtn.click();
-      await page.keyboard.press('Enter');
+      if (anyBtn) {
+        await anyBtn.click();
+      } else {
+        throw new Error('TikTok Post button not found or remained disabled');
+      }
     }
 
-    // Verify comment was submitted
-    await delay(3000);
+    // Wait for comment to submit and render
+    await delay(4000);
+
+    // Always take a proof screenshot of the post attempt
+    try {
+      const proofPath = path.join(__dirname, '..', 'public', 'tiktok_last_post.png');
+      await page.screenshot({ path: proofPath });
+      console.log(`📸 Saved post screenshot to public/tiktok_last_post.png`);
+    } catch {}
 
     const postStatus = await page.evaluate((originalComment) => {
       // 1. Check for TikTok toast / error notifications
@@ -332,8 +359,9 @@ async function postComment(videoUrl, comment) {
       throw new Error(`TikTok rejected comment: ${postStatus.error}`);
     }
 
-    if (postStatus.remainingText && postStatus.remainingText.length > 5 && postStatus.remainingText === comment.trim()) {
-      throw new Error('TikTok comment submission failed: text remained in editor after submit');
+    // If editor still holds the comment text after clicking submit, it didn't send
+    if (postStatus.remainingText && postStatus.remainingText.length > 3) {
+      throw new Error(`TikTok comment submission failed: text remained in editor (${postStatus.remainingText.substring(0, 30)}...)`);
     }
 
     return { success: true, platform: 'tiktok' };
