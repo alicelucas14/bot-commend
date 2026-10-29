@@ -15,9 +15,82 @@ const getTikTokCredentials = () => ({
 });
 
 let sessionCookies = null; // cache login session
+let lastCookieError = null; // tracks runtime session invalidation
 
 function getCookieFile() {
   return path.join(__dirname, '..', 'tokens', 'tiktok_cookies.json');
+}
+
+function getCookieStatus() {
+  const file = getCookieFile();
+  if (!fs.existsSync(file)) {
+    return { hasCookies: false, valid: false, expired: false, cookieCount: 0, message: 'No cookies file found' };
+  }
+  try {
+    const stat = fs.statSync(file);
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (!Array.isArray(raw) || raw.length === 0) {
+      return { hasCookies: false, valid: false, expired: true, cookieCount: 0, message: 'Cookies file is empty' };
+    }
+
+    const sessionCookie = raw.find(c => c.name === 'sessionid' || c.name === 'sessionid_ss' || c.name === 'sid_guard');
+    let expiresAt = null;
+    let isExpired = false;
+
+    if (sessionCookie && sessionCookie.expirationDate) {
+      const expMs = sessionCookie.expirationDate * 1000;
+      expiresAt = new Date(expMs).toISOString();
+      if (Date.now() > expMs) {
+        isExpired = true;
+      }
+    }
+
+    // Check age in hours (file mtime)
+    const ageHours = (Date.now() - stat.mtimeMs) / (1000 * 60 * 60);
+    // TikTok web sessions typically invalidate after 36-48h
+    if (ageHours > 48) {
+      isExpired = true;
+    }
+
+    // If runtime verification caught a login/signup popup, mark as expired
+    if (lastCookieError) {
+      isExpired = true;
+    }
+
+    return {
+      hasCookies: true,
+      valid: !isExpired,
+      expired: isExpired,
+      cookieCount: raw.length,
+      hasSessionId: !!sessionCookie,
+      expiresAt: expiresAt,
+      updatedAt: stat.mtime.toISOString(),
+      ageHours: Math.round(ageHours * 10) / 10,
+      reason: lastCookieError || (isExpired ? 'Session age exceeded 48 hours' : 'Active'),
+    };
+  } catch (err) {
+    return { hasCookies: true, valid: false, expired: true, cookieCount: 0, message: err.message };
+  }
+}
+
+function saveCookies(cookiesData) {
+  let parsed;
+  if (typeof cookiesData === 'string') {
+    parsed = JSON.parse(cookiesData.trim());
+  } else {
+    parsed = cookiesData;
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    throw new Error('Invalid cookies format — must be a JSON array of cookie objects from Cookie-Editor');
+  }
+
+  const dir = path.dirname(getCookieFile());
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+  fs.writeFileSync(getCookieFile(), JSON.stringify(parsed, null, 2), 'utf8');
+  sessionCookies = null; // clear in-memory cache
+  lastCookieError = null; // reset any previous expired flag
+  return getCookieStatus();
 }
 
 function loadSavedCookies() {
@@ -306,13 +379,17 @@ async function postComment(videoUrl, comment) {
       throw new Error(`TikTok: ${videoStatus}`);
     }
 
-    // Check if TikTok requires login instead of showing an active input
-    const isLoginRequired = await page.evaluate(() => {
-      const btns = Array.from(document.querySelectorAll('button, a, div'));
-      return btns.some(b => /log in to comment/i.test((b.innerText || b.textContent || '').trim()));
+    // Check if TikTok requires login or signup instead of showing an active input
+    const loginPrompt = await page.evaluate(() => {
+      const text = document.body ? document.body.innerText || '' : '';
+      if (/when's your birthday\?/i.test(text)) return 'TikTok signup prompt ("When\'s your birthday?") detected — session expired';
+      if (/log in to comment/i.test(text)) return 'TikTok "Log in to comment" detected — session expired';
+      if (/log in to tiktok/i.test(text)) return 'TikTok "Log in to TikTok" modal detected — session expired';
+      return null;
     });
-    if (isLoginRequired) {
-      throw new Error('TikTok session expired or not logged in: "Log in to comment" detected. Please refresh tokens/tiktok_cookies.json');
+    if (loginPrompt) {
+      lastCookieError = loginPrompt;
+      throw new Error(`${loginPrompt}. Please update cookies in dashboard Settings.`);
     }
 
     // Find comment input
@@ -590,14 +667,25 @@ async function getTrending(regionCode = 'US', maxResults = 20) {
 }
 
 async function testConnection() {
-  if (!isPuppeteerAvailable()) return { ok: false, message: 'Puppeteer not installed — run npm install puppeteer puppeteer-extra puppeteer-extra-plugin-stealth' };
-  const hasCookies = !!loadSavedCookies();
-  if (hasCookies) {
-    return { ok: true, message: 'Connected via session cookies (tokens/tiktok_cookies.json)' };
+  if (!isPuppeteerAvailable()) return { ok: false, message: 'Puppeteer not installed' };
+  const status = getCookieStatus();
+  if (status.hasCookies) {
+    if (status.expired) {
+      return { ok: false, message: `Session cookies expired (${status.reason || `updated ${status.ageHours}h ago`}). Please paste fresh cookies in Settings.` };
+    }
+    return { ok: true, message: `Connected via session cookies (${status.cookieCount} cookies, updated ${status.ageHours}h ago)` };
   }
   const { username, password } = getTikTokCredentials();
   if (!username || !password) return { ok: false, message: 'No session cookies and TIKTOK_USERNAME / TIKTOK_PASSWORD not set' };
   return { ok: true, message: `Configured as @${username} — will log in on first post` };
 }
 
-module.exports = { ...META, isConfigured, testConnection, postComment, getTrending };
+module.exports = {
+  ...META,
+  isConfigured,
+  testConnection,
+  postComment,
+  getTrending,
+  getCookieStatus,
+  saveCookies,
+};

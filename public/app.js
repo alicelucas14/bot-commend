@@ -1162,7 +1162,45 @@ function renderPlatformManagerRow(p) {
       </div>`;
   }
 
-  const cookieBadge = p.hasCookies ? `<span class="badge badge-purple" style="font-size: 0.75rem;">🍪 Cookies Active</span>` : '';
+  let cookieBadge = '';
+  if (p.id === 'tiktok') {
+    if (p.cookieStatus && p.cookieStatus.hasCookies) {
+      if (p.cookieStatus.expired) {
+        cookieBadge = `<span class="badge badge-red" style="font-size: 0.75rem;" title="${p.cookieStatus.reason || 'Expired'}">🔴 Cookies Expired</span>`;
+      } else {
+        cookieBadge = `<span class="badge badge-green" style="font-size: 0.75rem;" title="Updated ${p.cookieStatus.ageHours}h ago">🟢 Cookies Active</span>`;
+      }
+    } else {
+      cookieBadge = `<span class="badge badge-yellow" style="font-size: 0.75rem;">⚠️ No Cookies</span>`;
+    }
+  } else if (p.hasCookies) {
+    cookieBadge = `<span class="badge badge-purple" style="font-size: 0.75rem;">🍪 Cookies Active</span>`;
+  }
+
+  const tiktokCookieSection = p.id === 'tiktok' ? `
+    <div style="background: rgba(254, 44, 85, 0.06); border: 1px solid rgba(254, 44, 85, 0.25); border-radius: 8px; padding: 14px; margin-bottom: 14px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <span style="font-weight: 600; font-size: 0.85rem; color: #fff;">🍪 TikTok Session Cookies</span>
+        ${p.cookieStatus && p.cookieStatus.hasCookies ? (
+          p.cookieStatus.expired
+            ? `<span class="badge badge-red" style="font-size: 0.72rem;">⚠️ Expired (${p.cookieStatus.reason || `${p.cookieStatus.ageHours}h ago`})</span>`
+            : `<span class="badge badge-green" style="font-size: 0.72rem;">✅ Active (${p.cookieStatus.cookieCount} cookies, ${p.cookieStatus.ageHours}h ago)</span>`
+        ) : `<span class="badge badge-yellow" style="font-size: 0.72rem;">No cookies uploaded</span>`}
+      </div>
+      <p style="font-size: 0.78rem; color: #94a3b8; margin: 0 0 10px 0;">
+        Export cookies from <strong>Cookie-Editor</strong> (JSON) on tiktok.com and paste below, or upload the <code>.json</code> file:
+      </p>
+      <textarea id="tiktok-cookie-input" class="custom-input" rows="4" style="font-family: monospace; font-size: 0.75rem; width: 100%; box-sizing: border-box; resize: vertical;" placeholder='Paste JSON here... [ { "name": "sessionid", "value": "...", ... } ]'></textarea>
+      <div style="display: flex; gap: 8px; margin-top: 10px; align-items: center; flex-wrap: wrap;">
+        <button type="button" class="btn btn-primary btn-sm" onclick="saveTikTokCookies()" style="background: #fe2c55; border-color: #fe2c55;">
+          <span id="btn-save-cookies-text">📥 Save Cookies</span>
+        </button>
+        <label class="btn btn-ghost btn-sm" style="cursor: pointer; margin: 0;">
+          📁 Upload JSON <input type="file" id="tiktok-cookie-file" accept=".json" style="display:none;" onchange="handleCookieFileUpload(event)">
+        </label>
+        <div id="tiktok-cookie-msg" style="font-size: 0.8rem; margin-left: 6px;"></div>
+      </div>
+    </div>` : '';
 
   const fields = (p.credentialFields || []).map(f => `
     <div class="form-group">
@@ -1187,7 +1225,7 @@ function renderPlatformManagerRow(p) {
       </div>
       <div class="pm-form hidden" id="pm-form-${p.id}">
         <div class="pm-form-inner">
-          ${p.hasCookies ? `<div style="font-size: 0.82rem; color: #a78bfa; margin-bottom: 10px;">🍪 Session cookies active (tokens/tiktok_cookies.json) — login captcha bypassed automatically.</div>` : ''}
+          ${tiktokCookieSection}
           ${fields}
           <div class="pm-form-actions">
             <button class="btn btn-primary btn-sm" onclick="savePlatformCredentials('${p.id}')">
@@ -1799,4 +1837,65 @@ async function deleteCountry(code) {
   } catch {
     toast('Network error', 'error');
   }
+}
+
+
+// ─── TikTok Cookies Management ──────────────────────────────
+async function saveTikTokCookies(explicitJson) {
+  const input = document.getElementById('tiktok-cookie-input');
+  const msgEl = document.getElementById('tiktok-cookie-msg');
+  const btnText = document.getElementById('btn-save-cookies-text');
+  const jsonStr = explicitJson || (input ? input.value.trim() : '');
+
+  if (!jsonStr) {
+    if (msgEl) msgEl.innerHTML = '<span style="color: #f87171;">⚠️ Please paste cookie JSON first</span>';
+    toast('Please paste or upload cookie JSON', 'warn');
+    return;
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(jsonStr);
+  } catch (e) {
+    if (msgEl) msgEl.innerHTML = `<span style="color: #f87171;">❌ Invalid JSON: ${e.message}</span>`;
+    toast('Invalid JSON format', 'error');
+    return;
+  }
+
+  if (btnText) btnText.textContent = '⏳ Saving...';
+  if (msgEl) msgEl.innerHTML = '<span style="color: #94a3b8;">Saving cookies...</span>';
+
+  try {
+    const res = await apiFetch('/api/tiktok/cookies', {
+      method: 'POST',
+      body: JSON.stringify({ cookies: parsed })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      if (btnText) btnText.textContent = '📥 Save Cookies';
+      if (msgEl) msgEl.innerHTML = `<span style="color: #34d399;">✅ Saved ${data.status.cookieCount} cookies! Status: Active</span>`;
+      if (input) input.value = '';
+      toast(`TikTok cookies updated (${data.status.cookieCount} cookies)!`, 'ok');
+      await loadPlatforms();
+    } else {
+      throw new Error(data.error || 'Failed to save');
+    }
+  } catch (err) {
+    if (btnText) btnText.textContent = '📥 Save Cookies';
+    if (msgEl) msgEl.innerHTML = `<span style="color: #f87171;">❌ ${err.message}</span>`;
+    toast(err.message, 'error');
+  }
+}
+
+function handleCookieFileUpload(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const text = e.target.result;
+    const input = document.getElementById('tiktok-cookie-input');
+    if (input) input.value = text;
+    saveTikTokCookies(text);
+  };
+  reader.readAsText(file);
 }

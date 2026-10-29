@@ -1337,7 +1337,7 @@ app.get('/api/trending', requireAuth, async (req, res) => {
 // Platform registry
 app.get('/api/platforms', requireAuth, (req, res) => {
   const tiktokCookieFile = path.join(__dirname, 'tokens', 'tiktok_cookies.json');
-  const hasTikTokCookies = fs.existsSync(tiktokCookieFile);
+  const tiktokStatus = platformTikTok.getCookieStatus ? platformTikTok.getCookieStatus() : { hasCookies: fs.existsSync(tiktokCookieFile) };
 
   const list = Object.values(PLATFORM_REGISTRY).map(p => ({
     id:               p.id,
@@ -1348,7 +1348,8 @@ app.get('/api/platforms', requireAuth, (req, res) => {
     configured:       p.isConfigured(),
     supportsTrending: p.supportsTrending || false,
     postsThisSession: stats.platformStats[p.id] || 0,
-    hasCookies:       p.id === 'tiktok' ? hasTikTokCookies : false,
+    hasCookies:       p.id === 'tiktok' ? tiktokStatus.hasCookies : false,
+    cookieStatus:     p.id === 'tiktok' ? tiktokStatus : null,
     credentialFields: (p.credentialFields || []).map(f => ({
       ...f,
       value:    f.type === 'password' ? '' : (process.env[f.key] || ''),
@@ -1417,6 +1418,25 @@ app.post('/api/platforms/:id/credentials', requireAuth, async (req, res) => {
   } catch (err) {
     botError(`❌ ${platform.name} credential save error: ${err.message}`);
     res.status(500).json({ ok: false, message: err.message });
+  }
+});
+
+// TikTok Cookie Management Endpoints
+app.get('/api/tiktok/cookies', requireAuth, (req, res) => {
+  const status = platformTikTok.getCookieStatus ? platformTikTok.getCookieStatus() : { hasCookies: false };
+  res.json({ ok: true, status });
+});
+
+app.post('/api/tiktok/cookies', requireAuth, (req, res) => {
+  const { cookies } = req.body;
+  if (!cookies) return res.status(400).json({ ok: false, error: 'No cookies provided' });
+  try {
+    const status = platformTikTok.saveCookies(cookies);
+    botOk(`🍪 TikTok cookies updated via admin panel (${status.cookieCount} cookies, valid: ${status.valid})`);
+    res.json({ ok: true, status });
+  } catch (err) {
+    botWarn(`⚠️ Failed to save TikTok cookies: ${err.message}`);
+    res.status(400).json({ ok: false, error: err.message });
   }
 });
 
