@@ -309,31 +309,32 @@ async function postComment(videoUrl, comment) {
       await delay(1000);
 
       const clickCoords = await page.evaluate(() => {
-        // Collect all DOM elements whose exact text is "Comments" or "Comment"
         const all = Array.from(document.querySelectorAll('*'));
         const matches = all.filter(el => {
           const text = (el.innerText || el.textContent || '').trim();
-          return /^comments?$/i.test(text);
-        });
+          if (!/^comments?$/i.test(text)) return false;
+          const hasChildMatch = Array.from(el.children).some(c => /^comments?$/i.test((c.innerText || c.textContent || '').trim()));
+          if (hasChildMatch) return false;
 
-        // The real tab is the one right next to "You may like" in the right sidebar
-        for (const el of matches) {
+          let isRealTab = false;
           let p = el.parentElement;
-          let nearYouMayLike = false;
-          for (let i = 0; i < 5 && p; i++) {
-            if (/you may like/i.test(p.innerText || p.textContent || '')) {
-              nearYouMayLike = true;
+          for (let i = 0; i < 2 && p; i++) {
+            const siblingsText = Array.from(p.children).map(c => (c.innerText || c.textContent || '').toLowerCase());
+            if (siblingsText.some(t => t.includes('you may like'))) {
+              isRealTab = true;
               break;
             }
             p = p.parentElement;
           }
-          if (nearYouMayLike) {
-            const r = el.getBoundingClientRect();
-            // Real tab is in sidebar, NOT the top header at y = 96
-            if (r.width > 0 && r.height > 0 && r.top > 80) {
-              return { x: r.left + r.width / 2, y: r.top + r.height / 2, text: el.innerText };
-            }
-          }
+          if (!isRealTab) return false;
+
+          const rect = el.getBoundingClientRect();
+          return rect.top > 180 && rect.width > 0 && rect.height > 0;
+        });
+
+        if (matches.length > 0) {
+          const r = matches[0].getBoundingClientRect();
+          return { x: r.left + r.width / 2, y: r.top + r.height / 2, text: matches[0].innerText };
         }
         return null;
       });
