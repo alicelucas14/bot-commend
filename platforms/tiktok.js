@@ -309,32 +309,16 @@ async function postComment(videoUrl, comment) {
       await delay(1000);
 
       const clickCoords = await page.evaluate(() => {
+        // Find the Comments tab in the right sidebar (x > 850, y between 100 and 350)
         const all = Array.from(document.querySelectorAll('*'));
-        const matches = all.filter(el => {
-          const text = (el.innerText || el.textContent || '').trim();
-          if (!/^comments?$/i.test(text)) return false;
-          const hasChildMatch = Array.from(el.children).some(c => /^comments?$/i.test((c.innerText || c.textContent || '').trim()));
-          if (hasChildMatch) return false;
-
-          let isRealTab = false;
-          let p = el.parentElement;
-          for (let i = 0; i < 2 && p; i++) {
-            const siblingsText = Array.from(p.children).map(c => (c.innerText || c.textContent || '').toLowerCase());
-            if (siblingsText.some(t => t.includes('you may like'))) {
-              isRealTab = true;
-              break;
+        for (const el of all) {
+          const t = (el.innerText || el.textContent || '').trim();
+          if (/^comments?$/i.test(t)) {
+            const r = el.getBoundingClientRect();
+            if (r.left > 850 && r.top > 100 && r.top < 350 && r.width > 15 && r.height > 8) {
+              return { x: r.left + r.width / 2, y: r.top + r.height / 2, text: t };
             }
-            p = p.parentElement;
           }
-          if (!isRealTab) return false;
-
-          const rect = el.getBoundingClientRect();
-          return rect.top > 180 && rect.width > 0 && rect.height > 0;
-        });
-
-        if (matches.length > 0) {
-          const r = matches[0].getBoundingClientRect();
-          return { x: r.left + r.width / 2, y: r.top + r.height / 2, text: matches[0].innerText };
         }
         return null;
       });
