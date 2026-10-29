@@ -404,57 +404,36 @@ async function postComment(videoUrl, comment) {
       await delay(1000);
     } catch {}
 
-    // Find comment input
-    const inputSelectors = [
-      '[contenteditable="true"].public-DraftEditor-content',
-      '[contenteditable="true"]',
-      'div[data-e2e="comment-input"]',
-      'div[data-e2e="comment-text"]',
-      'div.DraftEditor-root [contenteditable="true"]',
-      'div.DraftEditor-root',
-      '[placeholder*="comment" i]',
-      'div[class*="CommentInput"]',
-      'div[class*="DraftEditor"]',
-      'textarea',
-    ];
-
-    let commentInput = null;
-    for (const sel of inputSelectors) {
-      try {
-        const els = await page.$$(sel);
-        for (const el of els) {
-          const box = await el.boundingBox();
-          if (box && box.width > 40 && box.height > 15) {
-            commentInput = el;
-            break;
+    // ─── Step: Find & Activate Comment Input ───────────────────
+    // On TikTok, the input is initially a collapsed placeholder ("Add comment...")
+    // Clicking it expands the Draft.js editor with [contenteditable="true"] and the Post button.
+    const clickedPlaceholder = await page.evaluate(() => {
+      const all = Array.from(document.querySelectorAll('*'));
+      for (const el of all) {
+        const t = (el.innerText || el.textContent || el.getAttribute('placeholder') || '').trim().toLowerCase();
+        if (t === 'add comment...' || t === 'add comment') {
+          const r = el.getBoundingClientRect();
+          if (r.width > 20 && r.height > 10 && r.left > 600 && r.top > 600) {
+            el.click();
+            return { x: r.left + r.width / 2, y: r.top + r.height / 2, text: t };
           }
         }
-        if (commentInput) break;
-      } catch {}
-    }
-
-    // If still not found, search for "Add comment..." placeholder text
-    if (!commentInput) {
-      const phCoords = await page.evaluate(() => {
-        const els = Array.from(document.querySelectorAll('*'));
-        for (const el of els) {
-          const t = (el.innerText || el.textContent || el.getAttribute('placeholder') || '').trim().toLowerCase();
-          if (t.includes('add comment') || t === 'comment...') {
-            const r = el.getBoundingClientRect();
-            if (r.width > 0 && r.height > 0 && r.left > 400) {
-              return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-            }
-          }
-        }
-        return null;
-      });
-      if (phCoords) {
-        console.log(`🎯 Clicking "Add comment" placeholder at (${Math.round(phCoords.x)}, ${Math.round(phCoords.y)})`);
-        await page.mouse.click(phCoords.x, phCoords.y);
-        await delay(1500);
-        commentInput = await page.$('[contenteditable="true"], div.DraftEditor-root');
       }
+      return null;
+    });
+
+    if (clickedPlaceholder) {
+      console.log(`🎯 Clicked "Add comment..." placeholder at (${Math.round(clickedPlaceholder.x)}, ${Math.round(clickedPlaceholder.y)})`);
+      await page.mouse.click(clickedPlaceholder.x, clickedPlaceholder.y);
+      await delay(1500);
+    } else {
+      console.warn('⚠️ "Add comment..." placeholder not found by exact text, clicking default bottom area (1150, 865)...');
+      await page.mouse.click(1150, 865);
+      await delay(1500);
     }
+
+    // Wait for the expanded [contenteditable="true"] DraftEditor to appear
+    let commentInput = await page.waitForSelector('[contenteditable="true"], div.DraftEditor-root [contenteditable="true"]', { timeout: 6000 }).catch(() => null);
 
     if (!commentInput) {
       const loginPrompt = await page.evaluate(() => {
@@ -468,13 +447,13 @@ async function postComment(videoUrl, comment) {
         lastCookieError = loginPrompt;
         throw new Error(`${loginPrompt}. Please update cookies in dashboard Settings.`);
       }
-      throw new Error('Comment input not found on TikTok video page');
+      throw new Error('Comment input editor did not open after clicking "Add comment..."');
     }
 
     await commentInput.click();
-    await delay(600);
+    await delay(400);
 
-    // Insert text using execCommand so Draft.js properly registers Unicode/Hindi characters
+    // Insert text using document.execCommand so Draft.js properly registers Unicode/Hindi characters
     await page.evaluate((text) => {
       const el = document.querySelector('[contenteditable="true"].public-DraftEditor-content, [contenteditable="true"]');
       if (el) {
@@ -490,37 +469,41 @@ async function postComment(videoUrl, comment) {
     // Trigger keyboard state update for Draft.js
     try {
       await page.keyboard.type(' ');
-      await delay(200);
+      await delay(150);
       await page.keyboard.press('Backspace');
-      await delay(800);
+      await delay(600);
     } catch {}
 
-    // Check if Post button is enabled
-    let submitBtn = await page.waitForSelector('button[data-e2e="comment-post"]:not([disabled]), [data-e2e="comment-post"]:not([disabled])', { timeout: 4000 }).catch(() => null);
-
-    // If still disabled, force an input event on the editor
-    if (!submitBtn) {
-      await page.evaluate(() => {
-        const el = document.querySelector('[contenteditable="true"].public-DraftEditor-content, [contenteditable="true"]');
-        if (el) {
-          el.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, inputType: 'insertText' }));
-          el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
-        }
-      });
-      await delay(1000);
-      submitBtn = await page.$('button[data-e2e="comment-post"]:not([disabled]), [data-e2e="comment-post"]:not([disabled])');
-    }
-
-    if (submitBtn) {
-      await submitBtn.click();
-    } else {
-      // Last resort click on any comment-post element
-      const anyBtn = await page.$('button[data-e2e="comment-post"], [data-e2e="comment-post"]');
-      if (anyBtn) {
-        await anyBtn.click();
-      } else {
-        throw new Error('TikTok Post button not found or remained disabled');
+    // Find and click Post button
+    const postClicked = await page.evaluate(() => {
+      // 1. data-e2e="comment-post"
+      const e2eBtn = document.querySelector('[data-e2e="comment-post"]');
+      if (e2eBtn) {
+        e2eBtn.click();
+        const r = e2eBtn.getBoundingClientRect();
+        return { clicked: true, x: r.left + r.width / 2, y: r.top + r.height / 2, type: 'data-e2e' };
       }
+      // 2. Element with text "Post" in bottom right
+      const all = Array.from(document.querySelectorAll('button, div, span'));
+      for (const el of all) {
+        const t = (el.innerText || el.textContent || '').trim().toLowerCase();
+        if (t === 'post') {
+          const r = el.getBoundingClientRect();
+          if (r.left > 800 && r.top > 600 && r.width > 15 && r.height > 10) {
+            el.click();
+            return { clicked: true, x: r.left + r.width / 2, y: r.top + r.height / 2, type: 'text-post' };
+          }
+        }
+      }
+      return null;
+    });
+
+    if (postClicked) {
+      console.log(`🚀 Clicked Post button at (${Math.round(postClicked.x)}, ${Math.round(postClicked.y)}) [${postClicked.type}]`);
+      await page.mouse.click(postClicked.x, postClicked.y);
+    } else {
+      console.log('⌨️ Post button not found in DOM, pressing Enter key to submit comment...');
+      await page.keyboard.press('Enter');
     }
 
     // Wait for comment to submit and render
