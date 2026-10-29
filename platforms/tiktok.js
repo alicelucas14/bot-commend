@@ -99,22 +99,31 @@ function loadSavedCookies() {
   try {
     const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
     if (!Array.isArray(raw) || raw.length === 0) return null;
-    return raw.map(c => {
-      const domainClean = c.domain ? c.domain.replace(/^\./, '') : 'tiktok.com';
+    const cookies = [];
+    for (const c of raw) {
+      if (!c.name || c.value === undefined) continue;
+      // TikTok cookies MUST be set at domain level (.tiktok.com) WITHOUT 'url' parameter
+      // so Chrome sends them to www.tiktok.com, m.tiktok.com, and all subdomains.
+      const domain = c.domain ? (c.domain.startsWith('.') ? c.domain : `.${c.domain}`) : '.tiktok.com';
       const item = {
         name: c.name,
         value: String(c.value),
-        domain: c.domain.startsWith('.') ? c.domain : `.${c.domain}`,
+        domain: domain,
         path: c.path || '/',
         httpOnly: Boolean(c.httpOnly),
         secure: Boolean(c.secure),
-        url: `https://${domainClean}${c.path || '/'}`,
       };
       if (c.sameSite === 'no_restriction') item.sameSite = 'None';
       else if (c.sameSite === 'lax') item.sameSite = 'Lax';
       else if (c.sameSite === 'strict') item.sameSite = 'Strict';
-      return item;
-    });
+      cookies.push(item);
+
+      // If cookie was exported with domain .www.tiktok.com, also add .tiktok.com copy
+      if (domain === '.www.tiktok.com') {
+        cookies.push({ ...item, domain: '.tiktok.com' });
+      }
+    }
+    return cookies;
   } catch (err) {
     console.warn('⚠️ Error loading saved TikTok cookies:', err.message);
     return null;
@@ -145,11 +154,21 @@ async function ensureLogin(page) {
   const cookiesToUse = sessionCookies || loadSavedCookies();
   if (cookiesToUse && cookiesToUse.length > 0) {
     try {
-      // Must visit HTTPS origin first so secure: true cookies are accepted by Chrome
-      await page.goto('https://www.tiktok.com', { waitUntil: 'domcontentloaded', timeout: 35000 }).catch(() => {});
       await page.setCookie(...cookiesToUse);
       sessionCookies = cookiesToUse;
-      console.log('🍪 Loaded TikTok session cookies successfully onto https://www.tiktok.com!');
+      console.log(`🍪 Applied ${cookiesToUse.length} TikTok session cookies to browser context`);
+
+      // Pre-navigate to tiktok.com and check user login status
+      await page.goto('https://www.tiktok.com', { waitUntil: 'domcontentloaded', timeout: 35000 }).catch(() => {});
+      await delay(2500);
+
+      const status = await page.evaluate(() => {
+        const hasAvatar = !!document.querySelector('img[class*="avatar" i], [data-e2e="profile-icon"], a[href*="/@"]');
+        const loginBtn = Array.from(document.querySelectorAll('button, a')).find(el => (el.innerText || '').trim().toLowerCase() === 'log in');
+        return { hasAvatar, hasLoginBtn: !!loginBtn };
+      });
+      console.log(`🔍 TikTok session verification: avatar=${status.hasAvatar}, loginBtn=${status.hasLoginBtn}`);
+
       return true;
     } catch (cookieErr) {
       console.warn('⚠️ Failed to apply cookies:', cookieErr.message);
@@ -272,7 +291,7 @@ async function postComment(videoUrl, comment) {
 
   try {
     await page.setViewport({ width: 1440, height: 900 }).catch(() => {});
-    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36');
 
     const loggedIn = await ensureLogin(page);
     if (!loggedIn) throw new Error('TikTok login failed — check TIKTOK_USERNAME/PASSWORD');
@@ -300,8 +319,16 @@ async function postComment(videoUrl, comment) {
 
     // Switch to Comments tab on video player (if "You may like" or anything else is active)
     try {
-      // First, dismiss any modal that might be open (like "Log in to TikTok" with "Skip" button)
+      // First, dismiss any modal or dialog overlay
+      await page.keyboard.press('Escape').catch(() => {});
       await page.evaluate(() => {
+        const closeSelectors = [
+          '[data-e2e="modal-close-icon"]',
+          'button[aria-label="Close"]',
+          'div[class*="modal"] [class*="close" i]',
+          'div[class*="popup"] [class*="close" i]',
+          'button, div, span, a',
+        ];
         const btns = Array.from(document.querySelectorAll('button, div, span, a'));
         const skip = btns.find(b => (b.innerText || b.textContent || '').trim().toLowerCase() === 'skip');
         if (skip) skip.click();
@@ -329,14 +356,14 @@ async function postComment(videoUrl, comment) {
         }
         window._debugCommentCandidates = candidates;
 
-        // The real Comments tab is in the right pane (x > 700) and below the top header (y > 100 && y < 450)
-        for (const el of all) {
-          const t = (el.innerText || el.textContent || '').trim();
-          if (/^comments?(s*\(.*\))?$/i.test(t)) {
-            const r = el.getBoundingClientRect();
-            if (r.left > 700 && r.top > 100 && r.top < 450 && r.width > 15 && r.height > 8) {
-              return { x: r.left + r.width / 2, y: r.top + r.height / 2, text: t };
-            }
+        // The real Comments tab is in the right pane (x > 600) and in the upper section (40 <= y < 450)
+        // Prefer BUTTON elements first, then SPAN / DIV
+        const sorted = all.filter(el => /^comments?(s*\(.*\))?$/i.test((el.innerText || el.textContent || '').trim()));
+        sorted.sort((a, b) => (a.tagName === 'BUTTON' ? -1 : 1));
+        for (const el of sorted) {
+          const r = el.getBoundingClientRect();
+          if (r.left > 600 && r.top >= 40 && r.top < 450 && r.width > 15 && r.height > 8) {
+            return { x: r.left + r.width / 2, y: r.top + r.height / 2, text: (el.innerText || el.textContent || '').trim() };
           }
         }
         return null;
@@ -350,7 +377,7 @@ async function postComment(videoUrl, comment) {
         await page.mouse.click(clickCoords.x, clickCoords.y);
         await delay(3500);
       } else {
-        console.warn('⚠️ No Comments tab found within (x > 700, 100 < y < 450). Available candidates:', JSON.stringify(debugCandidates));
+        console.warn('⚠️ No Comments tab found within (x > 600, 40 <= y < 450). Available candidates:', JSON.stringify(debugCandidates));
       }
     } catch (e) {
       console.warn('⚠️ Error switching to comments:', e.message);
@@ -367,18 +394,15 @@ async function postComment(videoUrl, comment) {
       throw new Error(`TikTok: ${videoStatus}`);
     }
 
-    // Check if TikTok requires login or signup instead of showing an active input
-    const loginPrompt = await page.evaluate(() => {
-      const text = document.body ? document.body.innerText || '' : '';
-      if (/when's your birthday\?/i.test(text)) return 'TikTok signup prompt ("When\'s your birthday?") detected — session expired';
-      if (/log in to comment/i.test(text)) return 'TikTok "Log in to comment" detected — session expired';
-      if (/log in to tiktok/i.test(text)) return 'TikTok "Log in to TikTok" modal detected — session expired';
-      return null;
-    });
-    if (loginPrompt) {
-      lastCookieError = loginPrompt;
-      throw new Error(`${loginPrompt}. Please update cookies in dashboard Settings.`);
-    }
+    // Dismiss any modal popup that might have triggered upon clicking comments
+    try {
+      await page.keyboard.press('Escape').catch(() => {});
+      await page.evaluate(() => {
+        const closeIcon = document.querySelector('[data-e2e="modal-close-icon"], button[aria-label="Close"], svg[class*="close" i]');
+        if (closeIcon) closeIcon.click();
+      });
+      await delay(1000);
+    } catch {}
 
     // Find comment input
     const inputSelectors = [
@@ -432,7 +456,20 @@ async function postComment(videoUrl, comment) {
       }
     }
 
-    if (!commentInput) throw new Error('Comment input not found on TikTok video page');
+    if (!commentInput) {
+      const loginPrompt = await page.evaluate(() => {
+        const text = document.body ? document.body.innerText || '' : '';
+        if (/when's your birthday\?/i.test(text)) return 'TikTok signup prompt ("When\'s your birthday?") detected — session expired';
+        if (/log in to comment/i.test(text)) return 'TikTok "Log in to comment" detected — session expired';
+        if (/log in to tiktok/i.test(text)) return 'TikTok "Log in to TikTok" modal detected — session expired';
+        return null;
+      });
+      if (loginPrompt) {
+        lastCookieError = loginPrompt;
+        throw new Error(`${loginPrompt}. Please update cookies in dashboard Settings.`);
+      }
+      throw new Error('Comment input not found on TikTok video page');
+    }
 
     await commentInput.click();
     await delay(600);
