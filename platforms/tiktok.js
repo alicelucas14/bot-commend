@@ -100,6 +100,7 @@ function loadSavedCookies() {
     const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
     if (!Array.isArray(raw) || raw.length === 0) return null;
     return raw.map(c => {
+      const domainClean = c.domain ? c.domain.replace(/^\./, '') : 'tiktok.com';
       const item = {
         name: c.name,
         value: String(c.value),
@@ -107,6 +108,7 @@ function loadSavedCookies() {
         path: c.path || '/',
         httpOnly: Boolean(c.httpOnly),
         secure: Boolean(c.secure),
+        url: `https://${domainClean}${c.path || '/'}`,
       };
       if (c.sameSite === 'no_restriction') item.sameSite = 'None';
       else if (c.sameSite === 'lax') item.sameSite = 'Lax';
@@ -143,9 +145,11 @@ async function ensureLogin(page) {
   const cookiesToUse = sessionCookies || loadSavedCookies();
   if (cookiesToUse && cookiesToUse.length > 0) {
     try {
+      // Must visit HTTPS origin first so secure: true cookies are accepted by Chrome
+      await page.goto('https://www.tiktok.com', { waitUntil: 'domcontentloaded', timeout: 35000 }).catch(() => {});
       await page.setCookie(...cookiesToUse);
       sessionCookies = cookiesToUse;
-      console.log('🍪 Loaded TikTok session cookies successfully!');
+      console.log('🍪 Loaded TikTok session cookies successfully onto https://www.tiktok.com!');
       return true;
     } catch (cookieErr) {
       console.warn('⚠️ Failed to apply cookies:', cookieErr.message);
@@ -325,8 +329,8 @@ async function postComment(videoUrl, comment) {
           }
           if (nearYouMayLike) {
             const r = el.getBoundingClientRect();
-            // Real tab is at y > 200, NOT the top header at y = 96
-            if (r.width > 0 && r.height > 0 && r.top > 150) {
+            // Real tab is in sidebar, NOT the top header at y = 96
+            if (r.width > 0 && r.height > 0 && r.top > 80) {
               return { x: r.left + r.width / 2, y: r.top + r.height / 2, text: el.innerText };
             }
           }
