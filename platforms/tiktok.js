@@ -309,13 +309,32 @@ async function postComment(videoUrl, comment) {
       await delay(1000);
 
       const clickCoords = await page.evaluate(() => {
-        // Find the Comments tab in the right sidebar (x > 850, y between 100 and 350)
         const all = Array.from(document.querySelectorAll('*'));
+        const candidates = [];
         for (const el of all) {
           const t = (el.innerText || el.textContent || '').trim();
-          if (/^comments?$/i.test(t)) {
+          if (/^comments?(s*\(.*\))?$/i.test(t) || t.toLowerCase().startsWith('comment')) {
             const r = el.getBoundingClientRect();
-            if (r.left > 850 && r.top > 100 && r.top < 350 && r.width > 15 && r.height > 8) {
+            if (r.width > 0 && r.height > 0) {
+              candidates.push({
+                tag: el.tagName,
+                text: t.substring(0, 30),
+                x: Math.round(r.left),
+                y: Math.round(r.top),
+                w: Math.round(r.width),
+                h: Math.round(r.height)
+              });
+            }
+          }
+        }
+        window._debugCommentCandidates = candidates;
+
+        // The real Comments tab is in the right pane (x > 700) and below the top header (y > 100 && y < 450)
+        for (const el of all) {
+          const t = (el.innerText || el.textContent || '').trim();
+          if (/^comments?(s*\(.*\))?$/i.test(t)) {
+            const r = el.getBoundingClientRect();
+            if (r.left > 700 && r.top > 100 && r.top < 450 && r.width > 15 && r.height > 8) {
               return { x: r.left + r.width / 2, y: r.top + r.height / 2, text: t };
             }
           }
@@ -323,35 +342,15 @@ async function postComment(videoUrl, comment) {
         return null;
       });
 
+      const debugCandidates = await page.evaluate(() => window._debugCommentCandidates || []);
+      console.log('🔍 Comment candidates found:', JSON.stringify(debugCandidates));
+
       if (clickCoords) {
-        console.log(`🎯 Clicking real Comments tab (next to "You may like") at (${Math.round(clickCoords.x)}, ${Math.round(clickCoords.y)})`);
+        console.log(`🎯 Clicking real Comments tab at (${Math.round(clickCoords.x)}, ${Math.round(clickCoords.y)}) [${clickCoords.text}]`);
         await page.mouse.click(clickCoords.x, clickCoords.y);
         await delay(3500);
       } else {
-        // Fallback: Click the comment bubble icon on the video player action bar
-        const iconCoords = await page.evaluate(() => {
-          // Look for comment count element or comment icon on the video bar
-          const els = Array.from(document.querySelectorAll('*'));
-          const countEl = els.find(el => {
-            const t = (el.innerText || el.textContent || '').trim();
-            return (t === '636' || (t.includes('636') && t.length < 10)) && el.getBoundingClientRect().top > 300;
-          });
-          if (countEl) {
-            const r = countEl.getBoundingClientRect();
-            if (r.width > 0 && r.height > 0) return { x: r.left + r.width / 2, y: r.top - 15 };
-          }
-          const icon = document.querySelector('[data-e2e*="comment-icon"], [aria-label*="comment" i]');
-          if (icon) {
-            const r = icon.getBoundingClientRect();
-            if (r.width > 0 && r.height > 0 && r.top > 200) return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-          }
-          return null;
-        });
-        if (iconCoords) {
-          console.log(`🎯 Clicking video comment bubble at (${Math.round(iconCoords.x)}, ${Math.round(iconCoords.y)})`);
-          await page.mouse.click(iconCoords.x, iconCoords.y);
-          await delay(3500);
-        }
+        console.warn('⚠️ No Comments tab found within (x > 700, 100 < y < 450). Available candidates:', JSON.stringify(debugCandidates));
       }
     } catch (e) {
       console.warn('⚠️ Error switching to comments:', e.message);
