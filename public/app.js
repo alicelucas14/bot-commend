@@ -1866,10 +1866,7 @@ async function saveTikTokCookies(explicitJson) {
   if (msgEl) msgEl.innerHTML = '<span style="color: #94a3b8;">Saving cookies...</span>';
 
   try {
-    const res = await apiFetch('/api/tiktok/cookies', {
-      method: 'POST',
-      body: JSON.stringify({ cookies: parsed })
-    });
+    const res = await api('/api/tiktok/cookies', 'POST', { cookies: parsed });
     const data = await res.json();
     if (data.ok) {
       if (btnText) btnText.textContent = '📥 Save Cookies';
