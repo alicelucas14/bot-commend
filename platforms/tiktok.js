@@ -179,26 +179,6 @@ async function ensureLogin(page) {
           console.warn('⚠️ CDP cookie set warning:', cdpErr.message);
         }
 
-        // C. Navigate to TikTok origin
-        await page.goto('https://www.tiktok.com', { waitUntil: 'domcontentloaded', timeout: 35000 }).catch(() => {});
-        await delay(2000);
-
-        // D. Also set cookies on the active origin
-        const pageCookies = raw.map(c => ({
-          name: c.name,
-          value: String(c.value),
-          url: 'https://www.tiktok.com',
-          path: c.path || '/',
-        }));
-        await page.setCookie(...pageCookies).catch(() => {});
-
-        const status = await page.evaluate(() => {
-          const hasAvatar = !!document.querySelector('img[class*="avatar" i], [data-e2e="profile-icon"], a[href*="/@"]');
-          const loginBtn = Array.from(document.querySelectorAll('button, a')).find(el => (el.innerText || '').trim().toLowerCase() === 'log in');
-          return { hasAvatar, hasLoginBtn: !!loginBtn };
-        });
-        console.log(`🔍 TikTok session verification: avatar=${status.hasAvatar}, loginBtn=${status.hasLoginBtn}`);
-
         return true;
       }
     } catch (cookieErr) {
