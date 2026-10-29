@@ -534,31 +534,47 @@ async function postComment(videoUrl, comment) {
     } catch {}
 
     const postStatus = await page.evaluate((originalComment) => {
-      // 1. Check for TikTok captcha / puzzle challenge
-      const hasCaptcha = Array.from(document.querySelectorAll('*')).some(el => {
-        const text = (el.innerText || el.textContent || '').toLowerCase();
-        return text.includes('drag the slider') || text.includes('fit the puzzle') || text.includes('security check') || text.includes('verify to continue');
+      // 1. Check if comment was posted (appears in list or editor was cleared)
+      const comments = Array.from(document.querySelectorAll('[data-e2e="comment-level-1"], [class*="CommentItem"], [class*="comment-text"], div[class*="comment"]'));
+      const foundInList = comments.some(c => {
+        const t = c.innerText || '';
+        return t.includes(originalComment.slice(0, 15)) || ((t.includes('1s ago') || t.includes('Just now')) && t.includes('renepacho1'));
       });
-      if (hasCaptcha) {
-        return { error: 'Security puzzle captcha triggered ("Drag the slider to fit the puzzle"). Datacenter IP blocked.' };
-      }
 
-      // 2. Check for TikTok toast / error notifications
-      const toasts = Array.from(document.querySelectorAll('[role="alert"], div[class*="toast"], div[class*="Toast"], [class*="modal"]'));
-      for (const t of toasts) {
-        const text = (t.innerText || t.textContent || '').trim();
-        if (text && /too fast|failed|error|blocked|prohibited|guidelines|log in|login/i.test(text)) {
-          return { error: text };
-        }
-      }
-
-      // 3. Check if editor was cleared
       const editor = document.querySelector('[contenteditable="true"].public-DraftEditor-content, [contenteditable="true"]');
       const remainingText = editor ? (editor.innerText || '').trim() : '';
 
-      // 4. Check if the newly posted comment appears in the comments list
-      const comments = Array.from(document.querySelectorAll('[data-e2e="comment-level-1"], [class*="CommentItem"], [class*="comment-text"]'));
-      const foundInList = comments.some(c => (c.innerText || '').includes(originalComment.slice(0, 15)));
+      // If the comment appears in comments list OR editor text is gone, it successfully posted!
+      if (foundInList || remainingText.length === 0) {
+        return { success: true, remainingText: '', foundInList: true };
+      }
+
+      // 2. Check for VISIBLE TikTok captcha / puzzle challenge modal
+      const isVisible = (el) => {
+        if (!el) return false;
+        const style = window.getComputedStyle(el);
+        const rect = el.getBoundingClientRect();
+        return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0' && rect.width > 50 && rect.height > 50;
+      };
+
+      const captchaEl = Array.from(document.querySelectorAll('div[class*="captcha" i], div[class*="secsdk" i], [id*="captcha" i], [class*="verify" i]')).find(el => {
+        const text = (el.innerText || el.textContent || '').toLowerCase();
+        return isVisible(el) && (text.includes('drag the slider') || text.includes('fit the puzzle') || text.includes('security check'));
+      });
+      if (captchaEl) {
+        return { error: 'Security puzzle captcha triggered ("Drag the slider to fit the puzzle").' };
+      }
+
+      // 3. Check for TikTok toast / error notifications
+      const toasts = Array.from(document.querySelectorAll('[role="alert"], div[class*="toast"], div[class*="Toast"], [class*="modal"]'));
+      for (const t of toasts) {
+        if (isVisible(t)) {
+          const text = (t.innerText || t.textContent || '').trim();
+          if (text && /too fast|failed|error|blocked|prohibited|guidelines/i.test(text)) {
+            return { error: text };
+          }
+        }
+      }
 
       return { remainingText, foundInList };
     }, comment);
