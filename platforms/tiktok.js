@@ -151,25 +151,56 @@ function isConfigured() {
 
 async function ensureLogin(page) {
   // 1. Check for saved session cookies from tokens/tiktok_cookies.json (Bypasses all captchas!)
-  const cookiesToUse = sessionCookies || loadSavedCookies();
-  if (cookiesToUse && cookiesToUse.length > 0) {
+  const file = getCookieFile();
+  if (fs.existsSync(file)) {
     try {
-      await page.setCookie(...cookiesToUse);
-      sessionCookies = cookiesToUse;
-      console.log(`🍪 Applied ${cookiesToUse.length} TikTok session cookies to browser context`);
+      const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+      if (Array.isArray(raw) && raw.length > 0) {
+        // A. Set explicit Cookie HTTP header (bulletproof across all requests and APIs)
+        const cookieHeader = raw.map(c => `${c.name}=${c.value}`).join('; ');
+        await page.setExtraHTTPHeaders({
+          'Cookie': cookieHeader,
+        });
 
-      // Pre-navigate to tiktok.com and check user login status
-      await page.goto('https://www.tiktok.com', { waitUntil: 'domcontentloaded', timeout: 35000 }).catch(() => {});
-      await delay(2500);
+        // B. Set cookies directly in Chromium network store via CDP Network.setCookies
+        try {
+          const client = await page.target().createCDPSession();
+          const cdpCookies = raw.map(c => ({
+            name: c.name,
+            value: String(c.value),
+            domain: c.domain && c.domain.startsWith('.') ? c.domain : `.${c.domain || 'tiktok.com'}`,
+            path: c.path || '/',
+            secure: true,
+            httpOnly: Boolean(c.httpOnly),
+          }));
+          await client.send('Network.setCookies', { cookies: cdpCookies });
+          console.log(`🍪 Applied ${cdpCookies.length} TikTok cookies via CDP Network.setCookies & HTTP Header`);
+        } catch (cdpErr) {
+          console.warn('⚠️ CDP cookie set warning:', cdpErr.message);
+        }
 
-      const status = await page.evaluate(() => {
-        const hasAvatar = !!document.querySelector('img[class*="avatar" i], [data-e2e="profile-icon"], a[href*="/@"]');
-        const loginBtn = Array.from(document.querySelectorAll('button, a')).find(el => (el.innerText || '').trim().toLowerCase() === 'log in');
-        return { hasAvatar, hasLoginBtn: !!loginBtn };
-      });
-      console.log(`🔍 TikTok session verification: avatar=${status.hasAvatar}, loginBtn=${status.hasLoginBtn}`);
+        // C. Navigate to TikTok origin
+        await page.goto('https://www.tiktok.com', { waitUntil: 'domcontentloaded', timeout: 35000 }).catch(() => {});
+        await delay(2000);
 
-      return true;
+        // D. Also set cookies on the active origin
+        const pageCookies = raw.map(c => ({
+          name: c.name,
+          value: String(c.value),
+          url: 'https://www.tiktok.com',
+          path: c.path || '/',
+        }));
+        await page.setCookie(...pageCookies).catch(() => {});
+
+        const status = await page.evaluate(() => {
+          const hasAvatar = !!document.querySelector('img[class*="avatar" i], [data-e2e="profile-icon"], a[href*="/@"]');
+          const loginBtn = Array.from(document.querySelectorAll('button, a')).find(el => (el.innerText || '').trim().toLowerCase() === 'log in');
+          return { hasAvatar, hasLoginBtn: !!loginBtn };
+        });
+        console.log(`🔍 TikTok session verification: avatar=${status.hasAvatar}, loginBtn=${status.hasLoginBtn}`);
+
+        return true;
+      }
     } catch (cookieErr) {
       console.warn('⚠️ Failed to apply cookies:', cookieErr.message);
     }
