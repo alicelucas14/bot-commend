@@ -462,27 +462,49 @@ async function postComment(videoUrl, comment) {
     }
 
     await commentInput.click();
-    await delay(400);
+    await delay(500);
 
-    // Insert text using document.execCommand so Draft.js properly registers Unicode/Hindi characters
-    await page.evaluate((text) => {
-      const el = document.querySelector('[contenteditable="true"].public-DraftEditor-content, [contenteditable="true"]');
-      if (el) {
-        el.focus();
-        document.execCommand('selectAll', false, null);
-        document.execCommand('insertText', false, text);
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-      }
-    }, comment);
-    await delay(1000);
+    // 1. Try native Puppeteer typing directly into the active Draft.js editor
+    console.log(`💬 Typing comment: "${comment}"`);
+    await page.keyboard.type(comment, { delay: 25 });
+    await delay(800);
 
-    // Trigger keyboard state update for Draft.js
+    // Verify if text was entered
+    let editorText = await page.evaluate(() => {
+      const el = document.querySelector('[contenteditable="true"]');
+      return el ? (el.innerText || el.textContent || '').trim() : '';
+    });
+
+    // 2. If keyboard typing didn't populate Draft.js, fallback to execCommand + input events
+    if (!editorText || editorText.length === 0) {
+      console.log('⚠️ Editor text empty after keyboard.type, trying execCommand injection...');
+      await page.evaluate((text) => {
+        const el = document.querySelector('[contenteditable="true"]');
+        if (el) {
+          el.focus();
+          document.execCommand('selectAll', false, null);
+          document.execCommand('insertText', false, text);
+          el.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, inputType: 'insertText', data: text }));
+          el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      }, comment);
+      await delay(1000);
+
+      editorText = await page.evaluate(() => {
+        const el = document.querySelector('[contenteditable="true"]');
+        return el ? (el.innerText || el.textContent || '').trim() : '';
+      });
+    }
+
+    console.log(`📝 Verified text in editor (${editorText.length} chars): "${editorText.substring(0, 40)}..."`);
+    if (!editorText || editorText.length === 0) {
+      throw new Error('TikTok: Failed to type comment into the Draft.js editor box');
+    }
+
+    // Save proof of filled editor before submitting
     try {
-      await page.keyboard.type(' ');
-      await delay(150);
-      await page.keyboard.press('Backspace');
-      await delay(600);
+      await page.screenshot({ path: path.join(__dirname, '..', 'public', 'tiktok_editor_filled.png') });
     } catch {}
 
     // Find and click Post button
@@ -490,8 +512,8 @@ async function postComment(videoUrl, comment) {
       // 1. data-e2e="comment-post"
       const e2eBtn = document.querySelector('[data-e2e="comment-post"]');
       if (e2eBtn) {
-        e2eBtn.click();
         const r = e2eBtn.getBoundingClientRect();
+        e2eBtn.click();
         return { clicked: true, x: r.left + r.width / 2, y: r.top + r.height / 2, type: 'data-e2e' };
       }
       // 2. Element with text "Post" in bottom right
@@ -513,12 +535,16 @@ async function postComment(videoUrl, comment) {
       console.log(`🚀 Clicked Post button at (${Math.round(postClicked.x)}, ${Math.round(postClicked.y)}) [${postClicked.type}]`);
       await page.mouse.click(postClicked.x, postClicked.y);
     } else {
-      console.log('⌨️ Post button not found in DOM, pressing Enter key to submit comment...');
+      console.log('⌨️ Post button not found, pressing Enter key...');
       await page.keyboard.press('Enter');
     }
 
+    // Also send Enter key as confirmation
+    await delay(1000);
+    await page.keyboard.press('Enter').catch(() => {});
+
     // Wait for comment to submit and render
-    await delay(5000);
+    await delay(6000);
 
     // Always take a proof screenshot of the post attempt
     try {
