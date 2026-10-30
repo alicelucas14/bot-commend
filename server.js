@@ -1456,7 +1456,7 @@ app.post('/api/platforms/:id/credentials', requireAuth, async (req, res) => {
   }
 });
 
-// TikTok Cookie Management Endpoints
+// TikTok Cookie & Multi-Account Endpoints
 app.get('/api/tiktok/cookies', requireAuth, (req, res) => {
   const status = platformTikTok.getCookieStatus ? platformTikTok.getCookieStatus() : { hasCookies: false };
   res.json({ ok: true, status });
@@ -1467,11 +1467,50 @@ app.post('/api/tiktok/cookies', requireAuth, (req, res) => {
   if (!cookies) return res.status(400).json({ ok: false, error: 'No cookies provided' });
   try {
     const status = platformTikTok.saveCookies(cookies);
+    // Also save/update in accounts directory as default account
+    if (platformTikTok.saveAccount) {
+      try { platformTikTok.saveAccount('Account 1 (@renepacho1)', cookies); } catch {}
+    }
     botOk(`🍪 TikTok cookies updated via admin panel (${status.cookieCount} cookies, valid: ${status.valid})`);
     res.json({ ok: true, status });
   } catch (err) {
     botWarn(`⚠️ Failed to save TikTok cookies: ${err.message}`);
     res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
+// TikTok Multi-Account Endpoints
+app.get('/api/tiktok/accounts', requireAuth, (req, res) => {
+  try {
+    const accounts = platformTikTok.getAccountsList ? platformTikTok.getAccountsList() : [];
+    res.json({ ok: true, accounts });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.post('/api/tiktok/accounts', requireAuth, (req, res) => {
+  const { name, cookies } = req.body;
+  if (!cookies) return res.status(400).json({ ok: false, error: 'No cookies provided' });
+  try {
+    const account = platformTikTok.saveAccount(name, cookies);
+    botOk(`✅ Added TikTok account: "${account.name}" (${account.cookieCount} cookies)`);
+    res.json({ ok: true, account, accounts: platformTikTok.getAccountsList() });
+  } catch (err) {
+    botWarn(`⚠️ Failed to add TikTok account: ${err.message}`);
+    res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
+app.delete('/api/tiktok/accounts/:id', requireAuth, (req, res) => {
+  const { id } = req.params;
+  try {
+    const deleted = platformTikTok.deleteAccount(id);
+    if (!deleted) return res.status(404).json({ ok: false, error: 'Account not found' });
+    botLog(`🗑️ Removed TikTok account ID: ${id}`);
+    res.json({ ok: true, accounts: platformTikTok.getAccountsList() });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 

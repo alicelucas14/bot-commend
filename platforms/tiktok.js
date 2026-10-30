@@ -130,6 +130,193 @@ function loadSavedCookies() {
   }
 }
 
+// ─── Multi-Account Support & Rotation ───────────────────────
+function getAccountsDir() {
+  const dir = path.join(__dirname, '..', 'tokens', 'tiktok_accounts');
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function initAccounts() {
+  const dir = getAccountsDir();
+  const files = fs.readdirSync(dir).filter(f => f.endsWith('.json'));
+  if (files.length === 0) {
+    const legacyFile = getCookieFile();
+    if (fs.existsSync(legacyFile)) {
+      try {
+        const raw = JSON.parse(fs.readFileSync(legacyFile, 'utf8'));
+        if (Array.isArray(raw) && raw.length > 0) {
+          const accId = 'acc_default';
+          const accData = {
+            id: accId,
+            name: 'Account 1 (@renepacho1)',
+            username: '@renepacho1',
+            cookies: raw,
+            postsCount: 1,
+            addedAt: new Date().toISOString(),
+            lastUsed: new Date().toISOString(),
+            status: 'active'
+          };
+          fs.writeFileSync(path.join(dir, `${accId}.json`), JSON.stringify(accData, null, 2), 'utf8');
+          console.log('✅ Migrated existing TikTok cookies to Account 1');
+        }
+      } catch (e) {
+        console.warn('⚠️ Could not migrate legacy TikTok cookies:', e.message);
+      }
+    }
+  }
+}
+
+// Auto-initialize on module load
+try { initAccounts(); } catch {}
+
+function getAccountsList() {
+  try { initAccounts(); } catch {}
+  const dir = getAccountsDir();
+  const files = fs.readdirSync(dir).filter(f => f.endsWith('.json'));
+  const list = [];
+  for (const f of files) {
+    try {
+      const fullPath = path.join(dir, f);
+      const acc = JSON.parse(fs.readFileSync(fullPath, 'utf8'));
+      const stat = fs.statSync(fullPath);
+      const cookies = Array.isArray(acc.cookies) ? acc.cookies : [];
+      const sessionCookie = cookies.find(c => c.name === 'sessionid' || c.name === 'sessionid_ss' || c.name === 'sid_guard');
+      let isExpired = acc.status === 'expired';
+      if (sessionCookie && sessionCookie.expirationDate) {
+        const expMs = sessionCookie.expirationDate * 1000;
+        if (Date.now() > expMs) isExpired = true;
+      }
+      list.push({
+        id: acc.id || f.replace('.json', ''),
+        name: acc.name || acc.username || f.replace('.json', ''),
+        username: acc.username || '',
+        cookieCount: cookies.length,
+        postsCount: acc.postsCount || 0,
+        addedAt: acc.addedAt || stat.birthtime.toISOString(),
+        lastUsed: acc.lastUsed || stat.mtime.toISOString(),
+        valid: !isExpired && cookies.length > 0,
+        expired: isExpired,
+        status: isExpired ? 'expired' : 'active',
+        reason: acc.lastError || (isExpired ? 'Session expired' : 'Active'),
+      });
+    } catch {}
+  }
+  return list;
+}
+
+function saveAccount(name, cookiesData) {
+  let parsed;
+  if (typeof cookiesData === 'string') {
+    parsed = JSON.parse(cookiesData.trim());
+  } else {
+    parsed = cookiesData;
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    throw new Error('Invalid cookies format — must be a JSON array of cookie objects from Cookie-Editor');
+  }
+
+  const dir = getAccountsDir();
+  const id = 'acc_' + Date.now();
+  const existingCount = fs.readdirSync(dir).filter(f => f.endsWith('.json')).length;
+  const cleanName = (name || '').trim() || `Account ${existingCount + 1}`;
+
+  const accData = {
+    id,
+    name: cleanName,
+    username: cleanName.startsWith('@') ? cleanName : '',
+    cookies: parsed,
+    postsCount: 0,
+    addedAt: new Date().toISOString(),
+    lastUsed: null,
+    status: 'active'
+  };
+
+  fs.writeFileSync(path.join(dir, `${id}.json`), JSON.stringify(accData, null, 2), 'utf8');
+
+  // Also sync to legacy single file for compatibility
+  try {
+    fs.writeFileSync(getCookieFile(), JSON.stringify(parsed, null, 2), 'utf8');
+  } catch {}
+
+  return {
+    id,
+    name: cleanName,
+    cookieCount: parsed.length,
+    valid: true,
+    status: 'active'
+  };
+}
+
+function deleteAccount(id) {
+  const dir = getAccountsDir();
+  const file = path.join(dir, `${id}.json`);
+  if (fs.existsSync(file)) {
+    fs.unlinkSync(file);
+    return true;
+  }
+  return false;
+}
+
+let currentAccountIndex = 0;
+
+function getNextAccount() {
+  try { initAccounts(); } catch {}
+  const dir = getAccountsDir();
+  const files = fs.readdirSync(dir).filter(f => f.endsWith('.json'));
+  if (files.length === 0) {
+    const legacy = loadSavedCookies();
+    if (legacy && legacy.length > 0) {
+      return { id: 'legacy', name: 'Default Account', cookies: legacy };
+    }
+    return null;
+  }
+
+  const accounts = [];
+  for (const f of files) {
+    try {
+      const acc = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
+      if (acc && Array.isArray(acc.cookies) && acc.cookies.length > 0) {
+        accounts.push(acc);
+      }
+    } catch {}
+  }
+
+  if (accounts.length === 0) return null;
+
+  const account = accounts[currentAccountIndex % accounts.length];
+  currentAccountIndex = (currentAccountIndex + 1) % accounts.length;
+  return account;
+}
+
+function recordAccountPostSuccess(id) {
+  const dir = getAccountsDir();
+  const file = path.join(dir, `${id}.json`);
+  if (fs.existsSync(file)) {
+    try {
+      const acc = JSON.parse(fs.readFileSync(file, 'utf8'));
+      acc.postsCount = (acc.postsCount || 0) + 1;
+      acc.lastUsed = new Date().toISOString();
+      acc.status = 'active';
+      fs.writeFileSync(file, JSON.stringify(acc, null, 2), 'utf8');
+    } catch {}
+  }
+}
+
+function recordAccountExpired(id, reason) {
+  const dir = getAccountsDir();
+  const file = path.join(dir, `${id}.json`);
+  if (fs.existsSync(file)) {
+    try {
+      const acc = JSON.parse(fs.readFileSync(file, 'utf8'));
+      acc.status = 'expired';
+      acc.lastError = reason;
+      fs.writeFileSync(file, JSON.stringify(acc, null, 2), 'utf8');
+    } catch {}
+  }
+}
+
+
 const META = {
   id:     'tiktok',
   name:   'TikTok',
@@ -145,42 +332,41 @@ const META = {
 
 function isConfigured() {
   const { username, password } = getTikTokCredentials();
-  const hasCookies = !!loadSavedCookies();
+  const accounts = getAccountsList().filter(a => a.cookieCount > 0);
+  const hasCookies = accounts.length > 0 || !!loadSavedCookies();
   return !!((hasCookies || (username && password)) && isPuppeteerAvailable());
 }
 
-async function ensureLogin(page) {
-  // 1. Check for saved session cookies from tokens/tiktok_cookies.json (Bypasses all captchas!)
-  const file = getCookieFile();
-  if (fs.existsSync(file)) {
+async function ensureLogin(page, customCookies = null, accountName = "TikTok Account") {
+  // 1. Check for custom cookies or saved session cookies (Bypasses captchas!)
+  const raw = customCookies || loadSavedCookies();
+  if (Array.isArray(raw) && raw.length > 0) {
     try {
-      const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
-      if (Array.isArray(raw) && raw.length > 0) {
-        // A. Set explicit Cookie HTTP header (bulletproof across all requests and APIs)
-        const cookieHeader = raw.map(c => `${c.name}=${c.value}`).join('; ');
-        await page.setExtraHTTPHeaders({
-          'Cookie': cookieHeader,
-        });
-
-        // B. Set cookies directly in Chromium network store via CDP Network.setCookies
-        try {
-          const client = await page.target().createCDPSession();
-          const cdpCookies = raw.map(c => ({
-            name: c.name,
-            value: String(c.value),
-            domain: c.domain && c.domain.startsWith('.') ? c.domain : `.${c.domain || 'tiktok.com'}`,
-            path: c.path || '/',
-            secure: true,
-            httpOnly: Boolean(c.httpOnly),
-          }));
-          await client.send('Network.setCookies', { cookies: cdpCookies });
-          console.log(`🍪 Applied ${cdpCookies.length} TikTok cookies via CDP Network.setCookies & HTTP Header`);
-        } catch (cdpErr) {
-          console.warn('⚠️ CDP cookie set warning:', cdpErr.message);
-        }
-
-        return true;
+      // Clear previous cookies & set directly via CDP
+      try {
+        const client = await page.target().createCDPSession();
+        await client.send('Network.clearBrowserCookies').catch(() => {});
+        const cdpCookies = raw.map(c => ({
+          name: c.name,
+          value: String(c.value),
+          domain: c.domain && c.domain.startsWith('.') ? c.domain : `.${c.domain || 'tiktok.com'}`,
+          path: c.path || '/',
+          secure: true,
+          httpOnly: Boolean(c.httpOnly),
+        }));
+        await client.send('Network.setCookies', { cookies: cdpCookies });
+        console.log(`🍪 Applied ${cdpCookies.length} TikTok cookies for [${accountName}] via CDP Network.setCookies`);
+      } catch (cdpErr) {
+        console.warn('⚠️ CDP cookie set warning:', cdpErr.message);
       }
+
+      // Explicit Cookie HTTP header
+      const cookieHeader = raw.map(c => `${c.name}=${c.value}`).join('; ');
+      await page.setExtraHTTPHeaders({
+        'Cookie': cookieHeader,
+      });
+
+      return true;
     } catch (cookieErr) {
       console.warn('⚠️ Failed to apply cookies:', cookieErr.message);
     }
@@ -304,8 +490,13 @@ async function postComment(videoUrl, comment) {
     await page.setViewport({ width: 1440, height: 900 }).catch(() => {});
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36');
 
-    const loggedIn = await ensureLogin(page);
-    if (!loggedIn) throw new Error('TikTok login failed — check TIKTOK_USERNAME/PASSWORD');
+    const account = getNextAccount();
+    const cookiesToUse = account ? account.cookies : loadSavedCookies();
+    const accountName = account ? account.name : 'TikTok Account';
+    console.log(`🎵 [TikTok Rotation] Selected account: "${accountName}"`);
+
+    const loggedIn = await ensureLogin(page, cookiesToUse, accountName);
+    if (!loggedIn) throw new Error('TikTok login failed — check credentials or cookies');
 
     // Navigate to video
     console.log(`🌐 Loading video: ${videoUrl}`);
@@ -706,4 +897,8 @@ module.exports = {
   getTrending,
   getCookieStatus,
   saveCookies,
+  getAccountsList,
+  saveAccount,
+  deleteAccount,
+  getNextAccount,
 };

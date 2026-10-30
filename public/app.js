@@ -270,7 +270,7 @@ function switchTab(tab) {
   document.getElementById('pageTitle').textContent = titles[tab] || tab;
 
   // Load data for tab
-  if (tab === 'accounts')     loadAccounts();
+  if (tab === 'accounts')     { loadAccounts(); loadTikTokAccounts(); }
   if (tab === 'settings')     loadSettings();
   if (tab === 'dashboard')    loadStats();
   if (tab === 'telegram-seo') loadTelegramGroups();
@@ -539,6 +539,7 @@ function videoCard(v, rank, country, platform = 'youtube') {
 
 // ─── Accounts Tab ────────────────────────────────────────────
 function setupAccountsTab() {
+  loadTikTokAccounts();
   document.getElementById('reloadAccountsBtn').addEventListener('click', async () => {
     const btn = document.getElementById('reloadAccountsBtn');
     btn.disabled = true;
@@ -1903,4 +1904,124 @@ function handleCookieFileUpload(event) {
     saveTikTokCookies(text);
   };
   reader.readAsText(file);
+}
+
+
+// ─── TikTok Multi-Account Management ────────────────────────
+async function loadTikTokAccounts() {
+  const tbody = document.getElementById('tiktokAccountsBody');
+  const badge = document.getElementById('tiktokAccountCountBadge');
+  if (!tbody) return;
+
+  try {
+    const res = await api('/api/tiktok/accounts');
+    const data = await res.json();
+    if (!data.ok || !Array.isArray(data.accounts)) {
+      tbody.innerHTML = '<tr><td colspan="6" class="empty-cell">Failed to load TikTok accounts.</td></tr>';
+      return;
+    }
+
+    const accounts = data.accounts;
+    const activeCount = accounts.filter(a => a.valid).length;
+    if (badge) {
+      badge.textContent = `${activeCount} active`;
+      badge.className = activeCount > 0 ? 'badge badge-green' : 'badge badge-yellow';
+    }
+
+    if (accounts.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" class="empty-cell">No TikTok accounts added yet. Click "+ Add TikTok Account" to add cookies.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = accounts.map(a => `
+      <tr>
+        <td><strong>${escapeHtml(a.name)}</strong></td>
+        <td><span class="badge badge-purple">${a.cookieCount} cookies</span></td>
+        <td>${a.postsCount || 0}</td>
+        <td>${a.lastUsed ? timeAgo(new Date(a.lastUsed)) : 'Never'}</td>
+        <td>
+          <span class="badge ${a.valid ? 'badge-green' : 'badge-red'}">
+            ${a.valid ? '✅ Active' : '⚠️ ' + escapeHtml(a.reason || 'Expired')}
+          </span>
+        </td>
+        <td>
+          <button class="btn btn-ghost btn-sm btn-icon" onclick="deleteTikTokAccount('${a.id}')" title="Delete Account">🗑️</button>
+        </td>
+      </tr>
+    `).join('');
+  } catch (err) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="empty-cell">Error: ${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+async function submitNewTikTokAccount() {
+  const nameInput = document.getElementById('newTikTokAccountName');
+  const cookieInput = document.getElementById('newTikTokAccountCookies');
+  const msgEl = document.getElementById('newTikTokAccountMsg');
+  const btn = document.getElementById('btnSaveTikTokAccount');
+
+  const name = nameInput ? nameInput.value.trim() : '';
+  const cookieStr = cookieInput ? cookieInput.value.trim() : '';
+
+  if (!cookieStr) {
+    if (msgEl) msgEl.innerHTML = '<span style="color:#f87171;">⚠️ Please paste cookie JSON</span>';
+    return;
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(cookieStr);
+  } catch (e) {
+    if (msgEl) msgEl.innerHTML = `<span style="color:#f87171;">❌ Invalid JSON: ${e.message}</span>`;
+    return;
+  }
+
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Saving...'; }
+
+  try {
+    const res = await api('/api/tiktok/accounts', 'POST', { name, cookies: parsed });
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.error || 'Failed to save account');
+
+    toast(`✅ Added TikTok account "${data.account.name}"!`, 'success');
+    if (nameInput) nameInput.value = '';
+    if (cookieInput) cookieInput.value = '';
+    if (msgEl) msgEl.innerHTML = '';
+    closeModal('addTikTokAccountModal');
+    loadTikTokAccounts();
+    if (typeof loadPlatforms === 'function') loadPlatforms();
+  } catch (err) {
+    if (msgEl) msgEl.innerHTML = `<span style="color:#f87171;">❌ ${err.message}</span>`;
+    toast(err.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '📥 Save Account'; }
+  }
+}
+
+function handleNewTikTokAccountFileUpload(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const msgEl = document.getElementById('newTikTokAccountFileMsg');
+  if (msgEl) msgEl.textContent = file.name;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const text = e.target.result;
+    const input = document.getElementById('newTikTokAccountCookies');
+    if (input) input.value = text;
+  };
+  reader.readAsText(file);
+}
+
+async function deleteTikTokAccount(id) {
+  if (!confirm('Are you sure you want to remove this TikTok account?')) return;
+  try {
+    const res = await api(`/api/tiktok/accounts/${id}`, 'DELETE');
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.error || 'Failed to delete');
+    toast('TikTok account deleted', 'info');
+    loadTikTokAccounts();
+    if (typeof loadPlatforms === 'function') loadPlatforms();
+  } catch (err) {
+    toast(`❌ ${err.message}`, 'error');
+  }
 }
