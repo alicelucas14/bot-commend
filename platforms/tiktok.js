@@ -308,8 +308,9 @@ async function postComment(videoUrl, comment) {
     if (!loggedIn) throw new Error('TikTok login failed — check TIKTOK_USERNAME/PASSWORD');
 
     // Navigate to video
-    await page.goto(videoUrl, { waitUntil: 'networkidle2', timeout: 35000 }).catch(() => {});
-    await delay(6000);
+    console.log(`🌐 Loading video: ${videoUrl}`);
+    await page.goto(videoUrl, { waitUntil: 'domcontentloaded', timeout: 45000 }).catch(() => {});
+    await delay(3000);
 
     // Dismiss any cookie/guest banner if present (including shadowRoot banners)
     try {
@@ -325,73 +326,46 @@ async function postComment(videoUrl, comment) {
         const allowBtn = btns.find(b => /allow all|accept|continue as guest/i.test(b.innerText || b.textContent || ''));
         if (allowBtn) allowBtn.click();
       });
-      await delay(2000);
+      await delay(1000);
     } catch {}
 
-    // Switch to Comments tab on video player (if "You may like" or anything else is active)
-    try {
-      // First, dismiss any modal or dialog overlay
+    // ─── Step 1: Wait for & Click Comments Tab ─────────────────
+    // Over residential proxies, the right pane takes a few seconds to hydrate.
+    // We poll until the Comments tab button appears in the DOM.
+    console.log('⏳ Waiting for Comments tab to render...');
+    let commentsTabCoords = null;
+    for (let attempt = 0; attempt < 12; attempt++) {
+      // Dismiss any overlay or modal
       await page.keyboard.press('Escape').catch(() => {});
       await page.evaluate(() => {
-        const closeSelectors = [
-          '[data-e2e="modal-close-icon"]',
-          'button[aria-label="Close"]',
-          'div[class*="modal"] [class*="close" i]',
-          'div[class*="popup"] [class*="close" i]',
-          'button, div, span, a',
-        ];
-        const btns = Array.from(document.querySelectorAll('button, div, span, a'));
-        const skip = btns.find(b => (b.innerText || b.textContent || '').trim().toLowerCase() === 'skip');
+        const skip = Array.from(document.querySelectorAll('button, div, span, a')).find(b => (b.innerText || '').trim().toLowerCase() === 'skip');
         if (skip) skip.click();
-      });
-      await delay(1000);
+      }).catch(() => {});
 
-      const clickCoords = await page.evaluate(() => {
-        const all = Array.from(document.querySelectorAll('*'));
-        const candidates = [];
-        for (const el of all) {
-          const t = (el.innerText || el.textContent || '').trim();
-          if (/^comments?(s*\(.*\))?$/i.test(t) || t.toLowerCase().startsWith('comment')) {
-            const r = el.getBoundingClientRect();
-            if (r.width > 0 && r.height > 0) {
-              candidates.push({
-                tag: el.tagName,
-                text: t.substring(0, 30),
-                x: Math.round(r.left),
-                y: Math.round(r.top),
-                w: Math.round(r.width),
-                h: Math.round(r.height)
-              });
-            }
-          }
-        }
-        window._debugCommentCandidates = candidates;
-
-        // The real Comments tab is in the right pane (x > 600) and in the upper section (40 <= y < 450)
+      commentsTabCoords = await page.evaluate(() => {
+        const all = Array.from(document.querySelectorAll('button, div, span, a'));
         // Prefer BUTTON elements first, then SPAN / DIV
-        const sorted = all.filter(el => /^comments?(s*\(.*\))?$/i.test((el.innerText || el.textContent || '').trim()));
+        const sorted = all.filter(el => /^comments?(\s*\(.*\))?$/i.test((el.innerText || el.textContent || '').trim()));
         sorted.sort((a, b) => (a.tagName === 'BUTTON' ? -1 : 1));
         for (const el of sorted) {
           const r = el.getBoundingClientRect();
-          if (r.left > 600 && r.top >= 40 && r.top < 450 && r.width > 15 && r.height > 8) {
-            return { x: r.left + r.width / 2, y: r.top + r.height / 2, text: (el.innerText || el.textContent || '').trim() };
+          if (r.width > 15 && r.height > 8 && r.left > 500 && r.top < 500) {
+            return { x: r.left + r.width / 2, y: r.top + r.height / 2, text: (el.innerText || el.textContent || '').trim(), tag: el.tagName };
           }
         }
         return null;
       });
 
-      const debugCandidates = await page.evaluate(() => window._debugCommentCandidates || []);
-      console.log('🔍 Comment candidates found:', JSON.stringify(debugCandidates));
+      if (commentsTabCoords) break;
+      await delay(1500);
+    }
 
-      if (clickCoords) {
-        console.log(`🎯 Clicking real Comments tab at (${Math.round(clickCoords.x)}, ${Math.round(clickCoords.y)}) [${clickCoords.text}]`);
-        await page.mouse.click(clickCoords.x, clickCoords.y);
-        await delay(3500);
-      } else {
-        console.warn('⚠️ No Comments tab found within (x > 600, 40 <= y < 450). Available candidates:', JSON.stringify(debugCandidates));
-      }
-    } catch (e) {
-      console.warn('⚠️ Error switching to comments:', e.message);
+    if (commentsTabCoords) {
+      console.log(`🎯 Found & clicking Comments tab [${commentsTabCoords.tag}] at (${Math.round(commentsTabCoords.x)}, ${Math.round(commentsTabCoords.y)})`);
+      await page.mouse.click(commentsTabCoords.x, commentsTabCoords.y);
+      await delay(2500);
+    } else {
+      console.warn('⚠️ Comments tab not found by text after waiting — checking if comments are already open...');
     }
 
     // Check if video is unavailable or comments are turned off
@@ -405,46 +379,41 @@ async function postComment(videoUrl, comment) {
       throw new Error(`TikTok: ${videoStatus}`);
     }
 
-    // Dismiss any modal popup that might have triggered upon clicking comments
-    try {
-      await page.keyboard.press('Escape').catch(() => {});
-      await page.evaluate(() => {
-        const closeIcon = document.querySelector('[data-e2e="modal-close-icon"], button[aria-label="Close"], svg[class*="close" i]');
-        if (closeIcon) closeIcon.click();
-      });
-      await delay(1000);
-    } catch {}
-
-    // ─── Step: Find & Activate Comment Input ───────────────────
-    // On TikTok, the input is initially a collapsed placeholder ("Add comment...")
-    // Clicking it expands the Draft.js editor with [contenteditable="true"] and the Post button.
-    const clickedPlaceholder = await page.evaluate(() => {
-      const all = Array.from(document.querySelectorAll('*'));
-      for (const el of all) {
-        const t = (el.innerText || el.textContent || el.getAttribute('placeholder') || '').trim().toLowerCase();
-        if (t === 'add comment...' || t === 'add comment') {
-          const r = el.getBoundingClientRect();
-          if (r.width > 20 && r.height > 10 && r.left > 600 && r.top > 600) {
-            el.click();
-            return { x: r.left + r.width / 2, y: r.top + r.height / 2, text: t };
+    // ─── Step 2: Wait for & Click "Add comment..." Input Bar ───
+    console.log('⏳ Waiting for "Add comment..." input bar...');
+    let placeholderCoords = null;
+    for (let attempt = 0; attempt < 10; attempt++) {
+      placeholderCoords = await page.evaluate(() => {
+        const all = Array.from(document.querySelectorAll('*'));
+        for (const el of all) {
+          const t = (el.innerText || el.textContent || el.getAttribute('placeholder') || '').trim().toLowerCase();
+          if (t === 'add comment...' || t === 'add comment' || t.startsWith('add comment')) {
+            const r = el.getBoundingClientRect();
+            if (r.width > 20 && r.height > 10 && r.left > 500 && r.top > 500) {
+              el.click();
+              return { x: r.left + r.width / 2, y: r.top + r.height / 2, text: t };
+            }
           }
         }
-      }
-      return null;
-    });
+        return null;
+      });
 
-    if (clickedPlaceholder) {
-      console.log(`🎯 Clicked "Add comment..." placeholder at (${Math.round(clickedPlaceholder.x)}, ${Math.round(clickedPlaceholder.y)})`);
-      await page.mouse.click(clickedPlaceholder.x, clickedPlaceholder.y);
+      if (placeholderCoords) break;
+      await delay(1500);
+    }
+
+    if (placeholderCoords) {
+      console.log(`🎯 Clicked "Add comment..." placeholder at (${Math.round(placeholderCoords.x)}, ${Math.round(placeholderCoords.y)})`);
+      await page.mouse.click(placeholderCoords.x, placeholderCoords.y);
       await delay(1500);
     } else {
-      console.warn('⚠️ "Add comment..." placeholder not found by exact text, clicking default bottom area (1150, 865)...');
+      console.warn('⚠️ "Add comment..." placeholder not found by text after waiting, clicking default bottom area (1150, 865)...');
       await page.mouse.click(1150, 865);
       await delay(1500);
     }
 
-    // Wait for the expanded [contenteditable="true"] DraftEditor to appear
-    let commentInput = await page.waitForSelector('[contenteditable="true"], div.DraftEditor-root [contenteditable="true"]', { timeout: 6000 }).catch(() => null);
+    // ─── Step 3: Wait for [contenteditable="true"] DraftEditor ──
+    let commentInput = await page.waitForSelector('[contenteditable="true"], div.DraftEditor-root [contenteditable="true"]', { timeout: 10000 }).catch(() => null);
 
     if (!commentInput) {
       const loginPrompt = await page.evaluate(() => {
