@@ -181,9 +181,10 @@ function initSocket() {
     appendLog(entry, 'miniLog');
   });
 
-  socket.on('postStart', ({ url, videoId, language, countryCode, platforms }) => {
+  socket.on('postStart', ({ url, videoId, language, countryCode, platforms, index, total }) => {
     document.getElementById('postCommentBtn').disabled = true;
-    document.getElementById('postBtnText').textContent  = `⏳ Posting to ${(platforms||[]).length} platform(s)...`;
+    const progress = total > 1 ? ` (${index || 1}/${total})` : '';
+    document.getElementById('postBtnText').textContent  = `⏳ Posting${progress}...`;
     isPosting = true;
   });
 
@@ -411,23 +412,30 @@ function setupPostCommentTab() {
 async function handlePostComment() {
   if (isPosting) return;
 
-  const url     = document.getElementById('videoUrlInput').value.trim();
+  const rawInput = document.getElementById('videoUrlInput').value.trim();
+  const urls = rawInput.split('\n').map(u => u.trim()).filter(Boolean);
   const country = getSelectedCountry('postCountrySelect');
   const platforms = Array.from(selectedPlatforms);
 
-  if (!url) { toast('Please enter a URL', 'warn'); return; }
+  if (urls.length === 0) { toast('Please enter at least one video URL', 'warn'); return; }
   if (platforms.length === 0) { toast('Select at least one platform', 'warn'); return; }
 
   try {
     const res  = await api('/api/post-comment', 'POST', {
-      url,
+      urls,
+      url:         urls[0],
       countryCode: country.code,
       language:    country.language,
       platforms,
     });
     const data = await res.json();
     if (!res.ok) toast(`❌ ${data.error || 'Failed'}`, 'error');
-    else         toast(`🚀 Started on [${platforms.join(', ')}] — watch terminal`, 'info');
+    else {
+      const msg = urls.length > 1
+        ? `🚀 Started bulk blast on ${urls.length} videos (2 min delay) — watch terminal`
+        : `🚀 Started on [${platforms.join(', ')}] — watch terminal`;
+      toast(msg, 'info');
+    }
     if (currentTab !== 'post') switchTab('post');
   } catch (err) {
     toast(`❌ Network error: ${err.message}`, 'error');

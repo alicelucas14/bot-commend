@@ -1223,87 +1223,122 @@ function oauthPage(icon, title, msg, success) {
     <body><div class="box"><div class="icon">${icon}</div><h2>${title}</h2><p>${msg}</p></div></body></html>`;
 }
 
-// Post comment (multi-platform)
+// Post comment (multi-platform with multi-URL and 2-min anti-ban delay)
 app.post('/api/post-comment', requireAuth, async (req, res) => {
   const {
     url,
+    urls,
     language    = 'Indonesian',
     countryCode = 'ID',
     platforms: selectedPlatforms = ['youtube'],
   } = req.body;
 
-  if (!url) return res.status(400).json({ error: 'url is required' });
+  const targetUrls = Array.isArray(urls) && urls.length > 0
+    ? urls.map(u => String(u).trim()).filter(Boolean)
+    : (url ? [String(url).trim()] : []);
 
-  const videoId = extractVideoId(url);
-  botLog(`▶️ Multi-platform blast: [${selectedPlatforms.join(', ')}] | Lang: ${language} | URL: ${url}`);
-  io.emit('postStart', { url, videoId, language, countryCode, platforms: selectedPlatforms });
+  if (targetUrls.length === 0) return res.status(400).json({ error: 'At least one video URL is required' });
+
+  botLog(`▶️ Multi-video blast queued: ${targetUrls.length} URL(s) on [${selectedPlatforms.join(', ')}] | Lang: ${language}`);
 
   // Execute blast in background with coordinated lifecycle
   (async () => {
     try {
-      // ── YouTube posting ──
-      if (selectedPlatforms.includes('youtube')) {
-        if (!videoId) {
-          botWarn('⚠️ YouTube selected but URL is not a valid YouTube link or ID — skipping YouTube');
-          io.emit('platformDone', { platform: 'youtube', success: [], failed: ['Invalid video URL / ID'] });
-        } else {
-          try {
-            const ytResult = await postComments(videoId, language);
-            stats.platformStats.youtube += (ytResult?.success?.length || 0);
-            io.emit('platformDone', { platform: 'youtube', ...(ytResult || { success: [], failed: [] }) });
-          } catch (ytErr) {
-            botError(`❌ YouTube blast failed: ${ytErr.message}`);
-            io.emit('platformDone', { platform: 'youtube', success: [], failed: [ytErr.message] });
+      for (let i = 0; i < targetUrls.length; i++) {
+        const currentUrl = targetUrls[i];
+        const videoId = extractVideoId(currentUrl);
+
+        botLog(`\n======================================================`);
+        botLog(`🎬 [Video ${i + 1}/${targetUrls.length}] Processing: ${currentUrl}`);
+        botLog(`▶️ Platforms: [${selectedPlatforms.join(', ')}] | Lang: ${language}`);
+        botLog(`======================================================`);
+
+        io.emit('postStart', {
+          url: currentUrl,
+          videoId,
+          language,
+          countryCode,
+          platforms: selectedPlatforms,
+          index: i + 1,
+          total: targetUrls.length,
+        });
+
+        // ── YouTube posting ──
+        if (selectedPlatforms.includes('youtube')) {
+          if (!videoId) {
+            botWarn('⚠️ YouTube selected but URL is not a valid YouTube link or ID — skipping YouTube');
+            io.emit('platformDone', { platform: 'youtube', success: [], failed: ['Invalid video URL / ID'] });
+          } else {
+            try {
+              const ytResult = await postComments(videoId, language);
+              stats.platformStats.youtube += (ytResult?.success?.length || 0);
+              io.emit('platformDone', { platform: 'youtube', ...(ytResult || { success: [], failed: [] }) });
+            } catch (ytErr) {
+              botError(`❌ YouTube blast failed: ${ytErr.message}`);
+              io.emit('platformDone', { platform: 'youtube', success: [], failed: [ytErr.message] });
+            }
           }
         }
-      }
 
-      // ── Other platforms ──
-      const otherPlatforms = selectedPlatforms.filter(p => p !== 'youtube');
-      if (otherPlatforms.length > 0) {
-        let input = url;
-        let sourceType = 'metadata';
-        try {
-          if (videoId && users.length > 0) {
-            const src = await getCommentsOrMetadata(videoId, users[0].youtube);
-            input      = src.type === 'comments'
-              ? src.data[Math.floor(Math.random() * src.data.length)]
-              : src.data;
-            sourceType = src.type;
-          }
-        } catch {}
-
-        for (const platformId of otherPlatforms) {
-          const platform = PLATFORM_REGISTRY[platformId];
-          if (!platform) { botWarn(`⚠️ Unknown platform: ${platformId}`); continue; }
-          if (!platform.isConfigured()) {
-            botWarn(`⚠️ ${platform.name} not configured — skipping`);
-            io.emit('platformDone', { platform: platformId, success: [], failed: ['not configured'] });
-            continue;
-          }
+        // ── Other platforms ──
+        const otherPlatforms = selectedPlatforms.filter(p => p !== 'youtube');
+        if (otherPlatforms.length > 0) {
+          let input = currentUrl;
+          let sourceType = 'metadata';
           try {
-            botLog(`🔄 Generating ${language} comment for ${platform.icon} ${platform.name}...`);
-            const comment = await generateReply(input, sourceType, language);
-            botLog(`📤 Posting to ${platform.icon} ${platform.name}...`);
-            await platform.postComment(url, comment);
-            stats.platformStats[platformId] = (stats.platformStats[platformId] || 0) + 1;
-            botOk(`✅ ${platform.icon} ${platform.name}: comment posted!`);
-            io.emit('platformDone', { platform: platformId, success: [platformId], failed: [] });
-          } catch (err) {
-            botError(`❌ ${platform.icon} ${platform.name} failed: ${err.message}`);
-            io.emit('platformDone', { platform: platformId, success: [], failed: [err.message] });
+            if (videoId && users.length > 0) {
+              const src = await getCommentsOrMetadata(videoId, users[0].youtube);
+              input      = src.type === 'comments'
+                ? src.data[Math.floor(Math.random() * src.data.length)]
+                : src.data;
+              sourceType = src.type;
+            }
+          } catch {}
+
+          for (const platformId of otherPlatforms) {
+            const platform = PLATFORM_REGISTRY[platformId];
+            if (!platform) { botWarn(`⚠️ Unknown platform: ${platformId}`); continue; }
+            if (!platform.isConfigured()) {
+              botWarn(`⚠️ ${platform.name} not configured — skipping`);
+              io.emit('platformDone', { platform: platformId, success: [], failed: ['not configured'] });
+              continue;
+            }
+            try {
+              botLog(`🔄 Generating ${language} comment for ${platform.icon} ${platform.name}...`);
+              const comment = await generateReply(input, sourceType, language);
+              botLog(`📤 Posting to ${platform.icon} ${platform.name}...`);
+              await platform.postComment(currentUrl, comment);
+              stats.platformStats[platformId] = (stats.platformStats[platformId] || 0) + 1;
+              botOk(`✅ ${platform.icon} ${platform.name}: comment posted!`);
+              io.emit('platformDone', { platform: platformId, success: [platformId], failed: [] });
+            } catch (err) {
+              botError(`❌ ${platform.icon} ${platform.name} failed: ${err.message}`);
+              io.emit('platformDone', { platform: platformId, success: [], failed: [err.message] });
+            }
+          }
+        }
+
+        // ── Anti-ban delay: wait 2 minutes (120s) before posting to next video ──
+        if (i < targetUrls.length - 1) {
+          botLog(`⏳ [Anti-Ban Safety] Pausing 2 minutes (120s) before video ${i + 2}/${targetUrls.length}...`);
+          for (let sec = 120; sec > 0; sec -= 30) {
+            botLog(`⏳ Next video in ${sec}s...`);
+            await new Promise(r => setTimeout(r, Math.min(sec, 30) * 1000));
           }
         }
       }
     } catch (globalErr) {
       botError(`❌ Unhandled error during comment blast: ${globalErr.message}`);
     } finally {
-      // Guaranteed to fire postDone when all platforms (including YouTube) finish
-      io.emit('postDone', { platforms: selectedPlatforms });
+      botOk(`🏁 Completed blast queue of ${targetUrls.length} video(s)!`);
+      io.emit('postDone', { platforms: selectedPlatforms, total: targetUrls.length });
     }
   })();
 
-  res.json({ success: true, message: 'Multi-platform posting started. Watch the live log.' });
+  res.json({
+    success: true,
+    message: `Started blast on ${targetUrls.length} video(s) with 2-minute safety delays. Watch live terminal.`
+  });
 });
 
 // Trending videos (multi-platform)
