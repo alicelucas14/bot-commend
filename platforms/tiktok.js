@@ -604,42 +604,51 @@ async function getTrending(regionCode = 'US', maxResults = 20) {
     await ensureLogin(page).catch(() => {});
 
     // Regional targeting:
-    // Because TikTok is officially banned within domestic India, Indian creators & audience
-    // publish under major diaspora & viral tags: #desi, #indiatiktok, #bollywood, #hindisong.
+    // On TikTok web, /search/video?q=... is the official and most reliable desktop discovery feed.
     let targetUrl;
     if (regionCode && regionCode.toUpperCase().startsWith('IN')) {
-      const indianTags = ['desi', 'indiatiktok', 'bollywood', 'hindisong'];
-      const chosenTag = indianTags[Math.floor(Math.random() * indianTags.length)];
-      targetUrl = `https://www.tiktok.com/tag/${chosenTag}`;
-      console.log(`🇮🇳 Targeting Indian TikTokers via tag: #${chosenTag}`);
+      const indianQueries = ['hindi', 'desi', 'bollywood', 'indian status'];
+      const chosenQuery = indianQueries[Math.floor(Math.random() * indianQueries.length)];
+      targetUrl = `https://www.tiktok.com/search/video?q=${encodeURIComponent(chosenQuery)}`;
+      console.log(`🇮🇳 Targeting Indian TikTokers via search: "${chosenQuery}"`);
     } else {
       targetUrl = 'https://www.tiktok.com/explore';
     }
 
     console.log(`🌐 Navigating to discovery page: ${targetUrl}`);
-    await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 40000 }).catch(() => {});
-    await delay(3500);
+    await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 45000 }).catch(() => {});
+    await delay(4000);
 
     // Dismiss any modal or banner
     await page.keyboard.press('Escape').catch(() => {});
     try {
       await page.evaluate(() => {
-        const btns = Array.from(document.querySelectorAll('button'));
+        const btns = Array.from(document.querySelectorAll('button, div, span, a'));
         for (const b of btns) {
-          if (/allow all|accept|continue as guest|skip|close/i.test(b.innerText || '')) {
+          const t = (b.innerText || '').trim().toLowerCase();
+          if (t === 'allow all' || t === 'accept' || t === 'continue as guest' || t === 'skip' || t === 'close') {
             b.click();
           }
         }
       });
     } catch {}
 
-    // Scroll 3-4 times to trigger infinite scroll and load video cards
-    for (let s = 0; s < 4; s++) {
+    // Wait up to 15s for video cards to render in the DOM
+    console.log('⏳ Waiting for video results to appear...');
+    await page.waitForSelector('a[href*="/video/"]', { timeout: 15000 }).catch(() => null);
+
+    // Scroll 3 times to trigger lazy-loading of thumbnails and items
+    for (let s = 0; s < 3; s++) {
       try {
-        await page.evaluate(() => window.scrollBy(0, 1500));
+        await page.evaluate(() => window.scrollBy(0, 1200));
         await delay(1200);
       } catch {}
     }
+
+    // Save debug screenshot of discovery page
+    try {
+      await page.screenshot({ path: path.join(__dirname, '..', 'public', 'tiktok_trending_debug.png') });
+    } catch {}
 
     const videos = await page.evaluate((max) => {
       const anchors = Array.from(document.querySelectorAll('a[href*="/video/"]'));
@@ -653,12 +662,12 @@ async function getTrending(regionCode = 'US', maxResults = 20) {
         seen.add(href);
 
         const img = a.querySelector('img');
-        const titleEl = a.querySelector('[class*="title"], [class*="desc"], p, span[class*="text"]');
+        const titleEl = a.querySelector('[class*="title"], [class*="desc"], p, span[class*="text"], [data-e2e*="desc"]');
         const username = href.split('@')[1]?.split('/')[0] || 'tiktoker';
 
         results.push({
           id:        href.split('/video/')[1]?.split('?')[0] || '',
-          title:     titleEl?.innerText?.trim().substring(0, 120) || `Trending video by @${username}`,
+          title:     titleEl?.innerText?.trim().substring(0, 120) || `Video by @${username}`,
           url:       href,
           thumbnail: img?.src || '',
           channel:   `@${username}`,
@@ -668,7 +677,7 @@ async function getTrending(regionCode = 'US', maxResults = 20) {
       return results;
     }, maxResults);
 
-    console.log(`✅ Discovered ${videos.length} videos from ${targetUrl}`);
+    console.log(`✅ Discovered ${videos.length} videos from ${targetUrl} (Current URL: ${page.url()})`);
     return videos.filter(v => v.id);
   } finally {
     await page.close();
