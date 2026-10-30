@@ -20,7 +20,7 @@ const META = {
   icon:   '📸',
   color:  '#e1306c',
   accent: '#e1306c',
-  supportsTrending: false,
+  supportsTrending: true,
   credentialFields: [
     { key: 'INSTAGRAM_USERNAME', label: 'Username', type: 'text',     placeholder: 'your_username' },
     { key: 'INSTAGRAM_PASSWORD', label: 'Password', type: 'password', placeholder: '••••••••' },
@@ -140,4 +140,31 @@ async function testConnection() {
   return { ok: true, message: `Configured as @${username} — will log in on first post` };
 }
 
-module.exports = { ...META, isConfigured, testConnection, postComment };
+
+const INSTAGRAM_COUNTRY_TAGS = {
+  IN: ['reelsindia', 'bollywood', 'desi', 'trendinginindia', 'reelsvideo'],
+  ID: ['indonesia', 'viralindonesia', 'reelsindonesia', 'dagelan', 'ngakakkocak'],
+  US: ['reels', 'viral', 'explorepage', 'trending', 'reelsinstagram'],
+  GB: ['uk', 'london', 'viralreels', 'britishmemes'],
+  CA: ['canada', 'toronto', 'viralreels'],
+  AU: ['australia', 'sydney', 'melbourne'],
+  BR: ['brasil', 'reelsbrasil', 'memesbrasil'],
+  MX: ['mexico', 'reelsmexico', 'memesmexico'],
+  DEFAULT: ['reels', 'viral', 'explorepage', 'trending'],
+};
+
+async function getTrending(regionCode = 'US', maxResults = 20) {
+  const code = (regionCode || 'US').toUpperCase();
+  const tags = INSTAGRAM_COUNTRY_TAGS[code] || INSTAGRAM_COUNTRY_TAGS.DEFAULT;
+
+  return tags.slice(0, maxResults).map((tag, i) => ({
+    id: `ig_${code}_${i}`,
+    title: `#${tag} — Top Reels & Posts`,
+    url: `https://www.instagram.com/explore/tags/${tag}/`,
+    thumbnail: 'https://static.cdninstagram.com/rsrc.php/v3/yI/r/VsNE-OHk_8a.png',
+    channel: `Instagram Explore • #${tag}`,
+    views: '🔥 Trending Tag',
+  }));
+}
+
+module.exports = { ...META, isConfigured, testConnection, postComment, getTrending };

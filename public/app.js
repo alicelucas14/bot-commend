@@ -468,7 +468,7 @@ async function fetchTrending() {
 
   btn.disabled = true;
   btn.textContent = '⏳ Loading...';
-  const platformName = platform === 'tiktok' ? 'TikTok' : platform === 'reddit' ? 'Reddit' : 'YouTube';
+  const platformName = platform === 'tiktok' ? 'TikTok' : platform === 'reddit' ? 'Reddit' : platform === 'twitter' ? 'Twitter / X' : platform === 'instagram' ? 'Instagram' : platform === 'facebook' ? 'Facebook' : 'YouTube';
   status.textContent = `🔍 Fetching ${platformName} trending for ${country.flag} ${country.name}...`;
   status.className = 'section-status loading';
   status.classList.remove('hidden');
@@ -518,7 +518,7 @@ async function fetchTrending() {
 
 function videoCard(v, rank, country, platform = 'youtube') {
   const thumb = v.thumbnail || `https://i.ytimg.com/vi/${v.id}/mqdefault.jpg`;
-  const platformIcon = platform === 'tiktok' ? '🎵' : platform === 'reddit' ? '🟠' : '🎥';
+  const platformIcon = platform === 'tiktok' ? '🎵' : platform === 'reddit' ? '🟠' : platform === 'twitter' ? '🐦' : platform === 'instagram' ? '📸' : platform === 'facebook' ? '📘' : '🎥';
   return `
     <div class="video-card">
       <img class="video-thumb" src="${thumb}" alt="${escHtml(v.title)}" loading="lazy" onerror="this.src='https://i.ytimg.com/vi/${v.id}/mqdefault.jpg'" />

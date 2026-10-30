@@ -9,7 +9,7 @@ const META = {
   icon:   '🐦',
   color:  '#000000',
   accent: '#1d9bf0',
-  supportsTrending: false,
+  supportsTrending: true,
   credentialFields: [
     { key: 'TWITTER_API_KEY',       label: 'API Key',           type: 'text',     placeholder: 'xxxxxxxxxxxxxxxxxxxxxx' },
     { key: 'TWITTER_API_SECRET',    label: 'API Secret',        type: 'password', placeholder: '••••••••••••••••' },
@@ -76,4 +76,84 @@ async function testConnection() {
   }
 }
 
-module.exports = { ...META, isConfigured, testConnection, postComment };
+
+const axios = require('axios');
+
+const TRENDS24_COUNTRY_MAP = {
+  US: 'united-states',
+  GB: 'united-kingdom',
+  IN: 'india',
+  ID: 'indonesia',
+  BR: 'brazil',
+  MX: 'mexico',
+  CA: 'canada',
+  AU: 'australia',
+  DE: 'germany',
+  FR: 'france',
+  IT: 'italy',
+  ES: 'spain',
+  JP: 'japan',
+  KR: 'korea',
+  PH: 'philippines',
+  MY: 'malaysia',
+  SG: 'singapore',
+  TH: 'thailand',
+  VN: 'vietnam',
+  PK: 'pakistan',
+  BD: 'bangladesh',
+  SA: 'saudi-arabia',
+  AE: 'united-arab-emirates',
+  EG: 'egypt',
+  NG: 'nigeria',
+  ZA: 'south-africa',
+  RU: 'russia',
+  TR: 'turkey',
+  NL: 'netherlands',
+  AR: 'argentina',
+  CO: 'colombia',
+  CL: 'chile',
+  PE: 'peru',
+};
+
+async function getTrending(regionCode = 'US', maxResults = 20) {
+  const code = (regionCode || 'US').toUpperCase();
+  const slug = TRENDS24_COUNTRY_MAP[code] || 'united-states';
+
+  try {
+    const res = await axios.get(`https://trends24.in/${slug}/`, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+      },
+      timeout: 10000,
+    });
+
+    const matches = [...res.data.matchAll(/<a[^>]*href="([^"]*twitter\.com\/search[^"]*)"[^>]*>([\s\S]*?)<\/a>/g)];
+    const seen = new Set();
+    const results = [];
+
+    for (const m of matches) {
+      const text = m[2].replace(/<[^>]+>/g, '').trim();
+      if (!text || seen.has(text.toLowerCase())) continue;
+      seen.add(text.toLowerCase());
+
+      const url = m[1].replace('twitter.com', 'x.com');
+      results.push({
+        id: encodeURIComponent(text),
+        title: text,
+        url: url,
+        thumbnail: 'https://abs.twimg.com/icons/apple-touch-icon-192x192.png',
+        channel: `X Trends • ${code}`,
+        views: '🔥 Viral Trending Topic',
+      });
+
+      if (results.length >= maxResults) break;
+    }
+
+    return results;
+  } catch (err) {
+    console.warn(`Twitter trends error: ${err.message}`);
+    return [];
+  }
+}
+
+module.exports = { ...META, isConfigured, testConnection, postComment, getTrending };

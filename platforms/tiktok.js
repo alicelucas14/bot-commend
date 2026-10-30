@@ -798,12 +798,12 @@ async function getTrending(regionCode = 'US', maxResults = 20) {
     // On TikTok web, /search/video?q=... is the official and most reliable desktop discovery feed.
     let targetUrl;
     if (regionCode && regionCode.toUpperCase().startsWith('IN')) {
-      const indianQueries = ['hindi', 'desi', 'bollywood', 'indian status'];
-      const chosenQuery = indianQueries[Math.floor(Math.random() * indianQueries.length)];
-      targetUrl = `https://www.tiktok.com/search/video?q=${encodeURIComponent(chosenQuery)}`;
-      console.log(`🇮🇳 Targeting Indian TikTokers via search: "${chosenQuery}"`);
+      const indianTags = ['hindi', 'desi', 'bollywood', 'indian'];
+      const chosenTag = indianTags[Math.floor(Math.random() * indianTags.length)];
+      targetUrl = `https://www.tiktok.com/tag/${chosenTag}`;
+      console.log(`🇮🇳 Targeting Indian TikTokers via tag page: "${chosenTag}"`);
     } else {
-      targetUrl = 'https://www.tiktok.com/explore';
+      targetUrl = 'https://www.tiktok.com/tag/viral';
     }
 
     console.log(`🌐 Navigating to discovery page: ${targetUrl}`);
