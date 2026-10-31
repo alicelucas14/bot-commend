@@ -498,50 +498,65 @@ async function postComment(videoUrl, comment) {
     const loggedIn = await ensureLogin(page, cookiesToUse, accountName);
     if (!loggedIn) throw new Error('TikTok login failed — check credentials or cookies');
 
-    // Navigate to video
-    console.log(`🌐 Loading video: ${videoUrl}`);
-    await page.goto(videoUrl, { waitUntil: 'domcontentloaded', timeout: 45000 }).catch(() => {});
-    await delay(3000);
+    // Clean URL: strip tracking/mobile query params (e.g. ?q=... from share links)
+    const cleanVideoUrl = videoUrl.split('?')[0];
+    console.log(`🌐 Loading video: ${cleanVideoUrl} (original: ${videoUrl})`);
+    await page.goto(cleanVideoUrl, { waitUntil: 'domcontentloaded', timeout: 45000 }).catch(() => {});
 
-    // Dismiss any cookie/guest banner if present (including shadowRoot banners)
+    // Wait up to 20s for TikTok page to hydrate over residential proxies
+    console.log('⏳ Waiting for video page hydration...');
+    await page.waitForFunction(() => {
+      const text = document.body ? document.body.innerText : '';
+      return text.includes('Comments') || document.querySelectorAll('button').length > 10;
+    }, { timeout: 20000 }).catch(() => {});
+    await delay(1500);
+
+    // Dismiss & remove any cookie/guest banner from DOM so it cannot block clicks
     try {
       await page.evaluate(() => {
-        const host = document.querySelector('tiktok-cookie-banner');
-        if (host && host.shadowRoot) {
-          const btns = Array.from(host.shadowRoot.querySelectorAll('button'));
-          const allowBtn = btns.find(b => /allow all|accept/i.test(b.innerText || ''));
-          if (allowBtn) allowBtn.click();
-          else if (btns.length > 0) btns[btns.length - 1].click();
-        }
-        const btns = Array.from(document.querySelectorAll('button'));
-        const allowBtn = btns.find(b => /allow all|accept|continue as guest/i.test(b.innerText || b.textContent || ''));
+        // Try clicking Allow All button first
+        const btns = Array.from(document.querySelectorAll('button, a, div'));
+        const allowBtn = btns.find(b => /allow all|accept|continue as guest/i.test((b.innerText || b.textContent || '').trim()));
         if (allowBtn) allowBtn.click();
+
+        // Also remove host element and overlay
+        document.querySelectorAll('tiktok-cookie-banner, [class*="cookie-banner"], [id*="cookie-banner"]').forEach(el => el.remove());
       });
-      await delay(1000);
+      await delay(800);
     } catch {}
 
     // ─── Step 1: Wait for & Click Comments Tab ─────────────────
-    // Over residential proxies, the right pane takes a few seconds to hydrate.
-    // We poll until the Comments tab button appears in the DOM.
-    console.log('⏳ Waiting for Comments tab to render...');
+    console.log('⏳ Finding and clicking Comments tab...');
     let commentsTabCoords = null;
     for (let attempt = 0; attempt < 12; attempt++) {
       // Dismiss any overlay or modal
       await page.keyboard.press('Escape').catch(() => {});
+
+      // Remove cookie banner again if re-injected
       await page.evaluate(() => {
-        const skip = Array.from(document.querySelectorAll('button, div, span, a')).find(b => (b.innerText || '').trim().toLowerCase() === 'skip');
-        if (skip) skip.click();
+        document.querySelectorAll('tiktok-cookie-banner, [class*="cookie-banner"], [id*="cookie-banner"]').forEach(el => el.remove());
       }).catch(() => {});
 
       commentsTabCoords = await page.evaluate(() => {
-        const all = Array.from(document.querySelectorAll('button, div, span, a'));
-        // Prefer BUTTON elements first, then SPAN / DIV
-        const sorted = all.filter(el => /^comments?(\s*\(.*\))?$/i.test((el.innerText || el.textContent || '').trim()));
-        sorted.sort((a, b) => (a.tagName === 'BUTTON' ? -1 : 1));
-        for (const el of sorted) {
+        const all = Array.from(document.querySelectorAll('*'));
+        // 1. Look for tab with exact text "Comments" at top right
+        for (const el of all) {
+          const t = (el.innerText || el.textContent || '').trim();
+          if (t === 'Comments' || /^comments?(\s*\(.*\))?$/i.test(t)) {
+            const r = el.getBoundingClientRect();
+            if (r.left > 650 && r.top < 250 && r.width > 20 && r.height > 10) {
+              el.click();
+              return { x: r.left + r.width / 2, y: r.top + r.height / 2, text: t, tag: el.tagName };
+            }
+          }
+        }
+        // 2. Fallback: look for comment action icon next to video
+        const actionIcons = Array.from(document.querySelectorAll('[data-e2e*="comment"], [aria-label*="comment" i]'));
+        for (const el of actionIcons) {
           const r = el.getBoundingClientRect();
-          if (r.width > 15 && r.height > 8 && r.left > 500 && r.top < 500) {
-            return { x: r.left + r.width / 2, y: r.top + r.height / 2, text: (el.innerText || el.textContent || '').trim(), tag: el.tagName };
+          if (r.width > 15 && r.height > 15 && r.left > 500) {
+            el.click();
+            return { x: r.left + r.width / 2, y: r.top + r.height / 2, text: 'action-icon', tag: el.tagName };
           }
         }
         return null;
@@ -554,7 +569,7 @@ async function postComment(videoUrl, comment) {
     if (commentsTabCoords) {
       console.log(`🎯 Found & clicking Comments tab [${commentsTabCoords.tag}] at (${Math.round(commentsTabCoords.x)}, ${Math.round(commentsTabCoords.y)})`);
       await page.mouse.click(commentsTabCoords.x, commentsTabCoords.y);
-      await delay(2500);
+      await delay(2000);
     } else {
       console.warn('⚠️ Comments tab not found by text after waiting — checking if comments are already open...');
     }
@@ -574,13 +589,18 @@ async function postComment(videoUrl, comment) {
     console.log('⏳ Waiting for "Add comment..." input bar...');
     let placeholderCoords = null;
     for (let attempt = 0; attempt < 10; attempt++) {
+      // Remove banner again to ensure clicks hit the placeholder
+      await page.evaluate(() => {
+        document.querySelectorAll('tiktok-cookie-banner, [class*="cookie-banner"]').forEach(el => el.remove());
+      }).catch(() => {});
+
       placeholderCoords = await page.evaluate(() => {
         const all = Array.from(document.querySelectorAll('*'));
         for (const el of all) {
           const t = (el.innerText || el.textContent || el.getAttribute('placeholder') || '').trim().toLowerCase();
           if (t === 'add comment...' || t === 'add comment' || t.startsWith('add comment')) {
             const r = el.getBoundingClientRect();
-            if (r.width > 20 && r.height > 10 && r.left > 500 && r.top > 500) {
+            if (r.width > 20 && r.height > 10 && r.left > 500) {
               el.click();
               return { x: r.left + r.width / 2, y: r.top + r.height / 2, text: t };
             }
